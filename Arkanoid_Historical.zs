@@ -31,7 +31,7 @@ or by only checking for equality on the walls.
 */
 
 //Arkanoid script
-//v0.29
+//v0.30
 //30th August, 2018
 
 //////////////////////
@@ -48,7 +48,7 @@ or by only checking for equality on the walls.
 	
 */
 
-ffc script version_alpha_0_29
+ffc script version_alpha_0_30
 {
 	void run(){}
 }
@@ -97,6 +97,7 @@ ffc script version_alpha_0_29
 ///	     : Added high_score, and score clear system.
 ///	     : Extra life from points set to 1000. Capsules award 10 points each. 
 ///	     : Shift+M now enabled mouse and sets fast_mouse = 2;
+///Alpha 0.30: Fixed timing for music playing and vaus spawning, and fixed visual bugs created by calling capsule.alloff() with improper sequencing.
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
 //! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
@@ -193,6 +194,7 @@ const int CAPS_EW_MISC_POINTS = 6;
 //Counters
 const int CR_SCORE = 7; //script 1
 const int CR_LIVES = 8; 
+const int CR_HIGH_SCORE = 9; 
 
 int high_score; //saved with quest.
 int last_score_award;
@@ -577,6 +579,7 @@ ffc script paddle
 		Game->PlaySound(SFX_MATERIALISE);
 		p->Y = START_PADDLE_Y;
 		p->X = START_PADDLE_X;
+		Waitframe();
 		p->Data = CMB_VAUS;
 		p->TileWidth = 2;
 		
@@ -587,23 +590,8 @@ ffc script paddle
 		p->TileWidth = 2;
 		death_frame = frame;
 	}
-	void check_score_extralife()
-	{
-		int score = Game->Counter[CR_SCORE];
-		if ( score >= (last_score_award+SCORE_BONUS_LIFE_AT) )
-		{
-			last_score_award += SCORE_BONUS_LIFE_AT;
-			Game->PlaySound(SFX_EXTRA_VAUS);
-			++Game->Counter[CR_LIVES];
-			
-		}
-	}
-	void clearscore()
-	{
-		if ( last_score_award > high_score ) high_score = last_score_award;
-		last_score_award = 0;
-		
-	}
+	
+	
 }
 
 const int MISC_BALLID = 0; //Misc index of Vaud->Misc[]
@@ -677,6 +665,7 @@ global script arkanoid
 		}
 		
 		ball.setup_sprite(SPR_BALL);
+		
 		while(true)
 		{
 			while(!quit)
@@ -688,7 +677,8 @@ global script arkanoid
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
 				while ( newstage ) 
 				{
-					capsule.alloff(vaus); //clear powerup status
+					
+					
 					capsule.all_clear(); //remove visible capsules
 					
 					hold_Link_y();
@@ -701,8 +691,10 @@ global script arkanoid
 					
 					brick.clear_combos();
 					
+					for ( int q = 0; q < 180; ++q ) WaitNoAction();
 					TraceS("Setting up Vaus on a new stage"); 
 					paddle.setup(vaus);
+					capsule.alloff(vaus); //clear powerup status
 					TraceS("Creating a ball on a new stage");
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
@@ -739,15 +731,17 @@ global script arkanoid
 				}
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
-					capsule.alloff(vaus);
+					vaus->Data = 0; //make it invisible for the moment, to stop the death anim. 
 					capsule.all_clear();
 					
 					Game->PlayMIDI(MID_STAGE_START);
+					for ( int q = 0; q < 180; ++q ) WaitNoAction();
 					
 					vaus->Misc[MISC_DEAD] = 0; 
 					revive_vaus = false;
 					
 					paddle.setup(vaus);
+					capsule.alloff(vaus);
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
 				}
@@ -881,7 +875,7 @@ global script arkanoid
 				//capsule.all_fall(vaus, movingball); //Handles all capsule interactions. 
 				capsule.convert();
 				capsule._run(vaus, movingball);
-				paddle.check_score_extralife();
+				check_score_extralife();
 				if ( !(frame%30) ) capsule.cleanup();
 				
 				Waitdraw();
@@ -993,7 +987,8 @@ global script arkanoid
 					GAME[GAME_MISC_FLAGS]|=GMFS_PLAYED_GAME_OVER_MUSIC;
 					//Play Game over MIDI
 					Game->PlayMIDI(1);
-					paddle.clearscore();
+					clearscore();
+					update_high_score_display();
 				}
 					
 				Screen->DrawString(6, 96, 80, 1, 0x51, 0x00, 0, "GAME OVER", 128);
@@ -1004,6 +999,27 @@ global script arkanoid
 			//We should never reach here. 
 			Waitframe(); 
 		}
+	}
+	void check_score_extralife()
+	{
+		int score = Game->Counter[CR_SCORE];
+		if ( score >= (last_score_award+SCORE_BONUS_LIFE_AT) )
+		{
+			last_score_award += SCORE_BONUS_LIFE_AT;
+			Game->PlaySound(SFX_EXTRA_VAUS);
+			++Game->Counter[CR_LIVES];
+			
+		}
+	}
+	void clearscore()
+	{
+		if ( last_score_award > high_score ) high_score = last_score_award;
+		last_score_award = 0;
+		
+	}
+	void update_high_score_display()
+	{
+		Game->Counter[CR_HIGH_SCORE] = high_score;
 	}
 	void change_setting()
 	{
@@ -3332,7 +3348,8 @@ global script onExit
 		Screen->LayerMap[0] = templayer[2];
 		Screen->LayerMap[1] = templayer[3];
 		newstage = true;
-		paddle.clearscore();
+		arkanoid.clearscore();
+		arkanoid.update_high_score_display();
 		//vaus->Misc[MISC_DEAD] = 0;
 
 	}
@@ -3371,6 +3388,8 @@ global script onContinue
 		quit = 0;
 		frame = -1;
 		//cur_stage = 1;
+		//ffc vaus = Screen->LoadFFC(FFC_VAUS);
+		//paddle.setup(vaus);
 		Game->Counter[CR_LIVES] = STARTING_LIVES;
 		Link->Invisible = true; 
 		Link->CollDetection = false;
