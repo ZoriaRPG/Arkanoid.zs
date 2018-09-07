@@ -15,7 +15,7 @@ or by only checking for equality on the walls.
 */
 
 //Arkanoid script
-//v0.25
+//v0.26
 //26th August, 2018
 
 //////////////////////
@@ -25,9 +25,6 @@ or by only checking for equality on the walls.
 // We need to either re-arrange the living/dead/death logic, or add another animation phase. 
 // May as well set up the Vaus explosion and add it with a SPARKLE LWeapon.
 
-
-
-//# QUEST ISSUE: Bricks Break playing the wrong sound, despite being set. Might be a 2.54 bug? -Z
 
 /* ZC issues: 
 	Continue script does not run when Init script runs. It NEEDS to do that! Otherwise, settings that affect things such as Link's tile
@@ -1514,6 +1511,95 @@ ffc script capsule
 			capsule->X = x;
 			capsule->Y = y;
 		}
+	}
+	void drawover(item c)
+	{
+		//draw tile
+	}
+	bool check_hitvaus(item c, ffc v, lweapon b)
+	{
+		
+		//if it hits, check the type
+		int captype = c->ID;
+		switch(captype)
+		{
+			case CAPS_TYPE_EXTEND: { extend(v); return true; }
+			case CAPS_TYPE_BREAK: { escape(v); return true; }
+			case CAPS_TYPE_CATCH: { catchball(v); return true; }
+			case CAPS_TYPE_DIVIDE: { split(v); return true; }
+			case CAPS_TYPE_LASER: { laser(v); return true; }
+			case CAPS_TYPE_VAUS:{ extravaus(v); return true; }
+			case CAPS_TYPE_SLOW:{ slow(v,b); return true; }
+			default: break;
+		}
+				
+		return false;		
+			
+			
+	}
+	void laser(ffc v)
+	{
+		//Game->PlaySound(capsule)
+		//change the vaus data to the laser
+		//laser = true;
+		//entended = false;
+		//catch = false;
+	}
+	void extend(ffc v)
+	{
+		//Game->PlaySound(capsule)
+		//change the vaus data to the default
+		//this is needed because collecting any powerup after
+		//a laser capsule reverts fromt he laser status
+		//laser = false;
+		//extended = true;
+		//catch = false;
+	}
+	void slow(ffc c, lweapon b)
+	{
+		//v->Data = default;
+		//Game->PlaySound(capsule)
+		//laser = false;
+		//extended = false;
+		//catch = false;
+		//b->Step = default;
+	}
+	void escape(ffc v)
+	{
+		////Game->PlaySound(capsule)
+		//laser = false;
+		//catch = false;
+		//extended = false;
+		//v->Data = default;
+		//create exit
+	}
+	void extravaus(ffc v)
+	{
+		////Game->PlaySound(capsule)
+		//laser = false;
+		//extended = false;
+		//catch = false;
+		//v->Data = default;
+		//++Game->Counter[lives]
+	}
+	void split(ffc v, lweapon b)
+	{
+		////Game->PlaySound(capsule)
+		//laser = false;
+		//extended = false;
+		//catch = false;
+		//v->Data = default;
+		//fuck this is going to be hard to add
+		
+	}
+	void catchball(ffc v)
+	{
+		////Game->PlaySound(capsule)
+		//laser = false;
+		//extended = false;
+		//v->Data = default;
+		//catch = true;
+		
 	}
 	int choosetype()
 	{
