@@ -6,7 +6,7 @@ import "std.zh"
 // Implement enemies. 
 
 //Arkanoid script
-//v0.19
+//v0.21
 //22nd August, 2018
 
 //////////////////////
@@ -26,6 +26,11 @@ import "std.zh"
 	
 */
 
+ffc script version_alpha_0_21
+{
+	void run(){}
+}
+
 /// Changes, Revision History
 ///
 ///
@@ -33,11 +38,15 @@ import "std.zh"
 ///		Then, re-implemented ONLY the Vaus midpoint physics.
 ///		Fixed the hack for UID in brick.take_hit(). This means that ZC 2.54 Alpha **32** is now the minimum ZC version.
 
-//Alpha 18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
-// 	The mouse mode must be enabled for this to function!
-//	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
+///Alpha 0.18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
+/// 	The mouse mode must be enabled for this to function!
+///	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
 
-//Alpha 0.19: Added in frame check for using V and B keys. 
+///Alpha 0.19: Added a frame check to keyboard keys V and B.
+
+///Alpha 0.20: Added an ffc script that reports the version when assigning slots after compiling. 
+
+///Alpha 0.21: Added code for advancing to the next stage.
 
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
@@ -61,10 +70,11 @@ int last_mouse_x;
 int fast_mouse;
 const int FAST_MOUSE_MAX = 6;
 
-const int MIN_ZC_ALPHA_BUILD = 33; //Alphas are negatives, so we neex to check maximum, not minimum.
+const int MIN_ZC_ALPHA_BUILD = 35; //Alphas are negatives, so we neex to check maximum, not minimum.
 
 
-const float ARKANOID_VERSION = 0.16;
+const float ARKANOID_VERSION = 0.21;
+const int MAX_STAGES = 2; //Number of stages/levels in the game.
 
 int GAME[256];
 const int GAME_MISC_FLAGS = 0;
@@ -96,6 +106,7 @@ int frame;
 bool newstage = true;
 bool revive_vaus = false; 
 
+
 int ball_x;
 int ball_y;
 int ball_dir;
@@ -110,6 +121,9 @@ int paddle_speed = 2;
 int extended;
 
 int ball_uid;
+
+bool leveldone = false;
+int cur_stage;
 
 //animation
 int death_frame;
@@ -531,11 +545,27 @@ global script arkanoid
 					
 					brick.clear_combos();
 					
-					newstage = false;
+					newstage = false; //on a new stage, these aren't working right yet. 
 					paddle.setup(vaus);
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
 					
+				}
+				if ( leveldone )
+				{
+					leveldone = false;
+					//play stage end music
+					//Warp to new screen here.
+					if ( cur_stage < MAX_STAGES ) 
+					{
+						Link->PitWarp(Game->GetCurDMap(), Game->GetCurScreen()+1);
+						newstage = true;
+						continue;
+					}
+					else
+					{
+						//Win game
+					}
 				}
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
@@ -550,7 +580,23 @@ global script arkanoid
 				
 				if ( !vaus->Misc[MISC_DEAD] )
 				{
-					
+					if ( !newstage )
+					{
+						if ( !Screen->NumNPCs() )
+						{
+							leveldone = true;
+							continue;
+						}
+							
+						if ( brick.all_gone() )
+						{
+						
+							leveldone = true;
+							continue;
+						}
+						
+						
+					}
 					if ( Input->Key[KEY_9] )
 					{
 						bitmap bmp = Game->LoadBitmapID(RT_SCREEN);
@@ -891,6 +937,10 @@ ffc script ball
 	bool launched(lweapon b) 
 	{
 		return (b->Misc[MISC_LAUNCHED]);
+	}
+	void launched(lweapon b, bool state)
+	{
+		b->Misc[MISC_LAUNCHED] = state;
 	}
 	void move(lweapon b)
 	{
@@ -1395,6 +1445,16 @@ ffc script brick
 {
 	void run()
 	{
+	}
+	bool all_gone()
+	{
+		npc n; int count;
+		for ( int q = Screen->NumNPCs(); q > 0; --q )
+		{
+			n = Screen->LoadNPC(q);
+			if ( n->Type == NPCT_OTHERFLOAT ) ++count;
+		}
+		return ( count <= 0 );
 	}
 	float bound(int val, int min, int max)
 	{
