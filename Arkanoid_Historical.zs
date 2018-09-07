@@ -1,9 +1,30 @@
 import "std.zh"
 
+
 //TODO: 
+// Rewrite capsules to use eweapons.
+// Fix extebnded vaus speed and movement. 
+//	Fast movement doesn't have an extended mode at all, at present!
+//	vaus->X += 1+(frame%2); //this seems fair.
+// Add catch, and laser
 // Add corner check for WALLS for various angles.
 // Implement new angles after collision with walls and bricks.
 // Implement enemies. 
+
+	/*Capsule Rewrite
+
+
+	1. Use itemdata->attribs for caps type
+	2. Use itemdata->sprites for the sprite to use on an eweapon
+	3. If the item appears, spawn an eweapon in its place and remove the item
+	4. Apply the itemdata->id to ew->Misc[] and read it in place of the item id
+		4(a). 	eweapons wouldnt need to be manually moved:
+			Just set their dir = down and a step speed
+		4(b).	Blocks can use item dropsets for pills to drop
+	5. Set the default item drawyoffset to offscreen, so that eweapon spawns aren't visible
+		5(a).	Now we can rid ourselves of the script draws and the loops to move everything
+	6. Perform removal of eweapons every 10 frames with capsule.cleanup() called if !(frame%10)
+	*/
 
 /* Wall drop issue might be because the dir is being set 
 when the ball is past the wall, then the ball is being 
@@ -15,8 +36,8 @@ or by only checking for equality on the walls.
 */
 
 //Arkanoid script
-//v0.27
-//27th August, 2018
+//v0.28
+//29th August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -32,7 +53,7 @@ or by only checking for equality on the walls.
 	
 */
 
-ffc script version_alpha_0_27
+ffc script version_alpha_0_28
 {
 	void run(){}
 }
@@ -71,6 +92,8 @@ ffc script version_alpha_0_27
 ///	     : Added extend state capabilities to game. Extend capsules now extend the Vaus.
 ///	     : Added slow capsule powerups that function.
 ///	     : Added Extra Vaus powerups that function. 
+///Alpha 0.28: Converted capsules to eweapons.
+///	     : Fixed extended movement with both KB/JP and Mouse. 
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
 //! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
@@ -87,6 +110,7 @@ config MIN_ZC_ALPHA_BUILD 	= 35; //Alphas are negatives, so we neex to check max
 config STARTING_LIVES 		= 5; 
 config CAPSULE_FALL_SPEED 	= 1;
 config BALL_INITIAL_STEP 	= 90;
+config CAPSULE_STEP		= 80;
 
 const float ARKANOID_VERSION = 0.25;
 
@@ -279,7 +303,7 @@ ffc script paddle
 					
 					if ( distx < 0 ) 
 					{
-						Trace(distx);
+						//Trace(distx);
 						for ( int q = Abs(distx) * fast_mouse; q > 0 ; --q ) 
 						{
 							
@@ -292,7 +316,7 @@ ffc script paddle
 					}
 					else if ( distx > 0 )
 					{
-						Trace(distx);
+						//Trace(distx);
 						for ( int q = Abs(distx) * fast_mouse; q > 0 ; --q ) 
 						{
 							
@@ -313,9 +337,9 @@ ffc script paddle
 						{
 							for ( int q = fast_mouse; q > 0; --q )
 							{
-								if ( p->X > PADDLE_MIN_X_EXTENDED )
+								if ( p->X > PADDLE_MIN_X_EXTENDED+(frame%2) )
 								{
-									--p->X;
+									p->X -= (1+(frame%2)); //move left
 								}
 							}
 						}
@@ -326,9 +350,9 @@ ffc script paddle
 						{
 							for ( int q = fast_mouse; q > 0; --q )
 							{
-								if ( p->X > PADDLE_MAX_X_EXTENDED )
+								if ( p->X < PADDLE_MAX_X_EXTENDED-(frame%2) )
 								{
-									++p->X;
+									p->X += (1+(frame%2)); //move right
 								}
 							}
 						}
@@ -402,6 +426,30 @@ ffc script paddle
 						}
 					}
 				}
+				else
+				{
+					if (  Input->Button[CB_LEFT] ) 
+					{
+						for ( int q = frames_pressed[CB_LEFT]; q > 0 ; --q ) 
+						{
+							if ( p->X > PADDLE_MIN_X_EXTENDED )
+							{
+								--p->X;
+							}
+						}
+					}
+					if (  Input->Button[CB_RIGHT] ) 
+					{
+						for ( int q = frames_pressed[CB_RIGHT]; q > 0; --q ) 
+						{
+							if ( p->X < PADDLE_MAX_X_EXTENDED )
+							{
+								++p->X;
+							}
+						}
+					}
+					
+				}
 				
 			}
 			
@@ -437,13 +485,13 @@ ffc script paddle
 					{
 						if ( p->X > PADDLE_MIN_X_EXTENDED )
 						{
-							--p->X;
+							p->X -= (1+(frame%2));
 						}
 					}
 					if (  Input->Button[CB_RIGHT] ) {
 						if ( p->X < PADDLE_MAX_X_EXTENDED )
 						{
-							++p->X;
+							p->X += (1+(frame%2));
 						}
 					}
 					
@@ -581,6 +629,7 @@ global script arkanoid
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
 				while ( newstage ) 
 				{
+					capsule.all_clear();
 					extended = false;
 					hold_Link_y();
 					vaus = Screen->LoadFFC(FFC_VAUS);
@@ -597,12 +646,14 @@ global script arkanoid
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
 					vaus->Misc[MISC_DEAD] = 0; 
-					newstage = false; //on a new stage, these aren't working right yet. 
+					newstage = false; //on a new stage, these aren't working right yet.
+					
 					
 					
 				}
 				while ( leveldone )
 				{
+					capsule.all_clear();
 					hold_Link_y();
 					//play stage end music
 					//Warp to new screen here.
@@ -627,6 +678,7 @@ global script arkanoid
 				}
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
+					capsule.all_clear();
 					extended = false;
 					Game->PlayMIDI(MID_STAGE_START);
 					vaus->Misc[MISC_DEAD] = 0; 
@@ -687,6 +739,7 @@ global script arkanoid
 							TraceS("Offscreen Bitmap col: "); Trace(col2[q]);
 						}
 					}	
+					
 					//if ( Input->Key[KEY_P] ) Trace(movingball->UID); //Frick, I'm an idiot. HIT_BY_LWEAPON is the SCREEN INDEX< not the UID!!
 						//2.54 Absolutely needs HitBy_UID!
 					if ( Input->Key[KEY_1] ) Trace(frame);
@@ -726,7 +779,7 @@ global script arkanoid
 					for ( int q = Screen->NumNPCs(); q > 0; --q )
 					{ 
 						npc b = Screen->LoadNPC(q);
-						if ( b->Type != NPCT_OTHERFLOAT ) continue;
+						if ( b->Type != NPCT_OTHER ) continue;
 						TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
 						TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
 						brick.take_hit(b, movingball);
@@ -762,8 +815,10 @@ global script arkanoid
 				}
 				
 				//Capsule mechanics
-				capsule.all_fall(vaus, movingball); //Handles all capsule interactions. 
-				
+				//capsule.all_fall(vaus, movingball); //Handles all capsule interactions. 
+				capsule.convert();
+				capsule._run(vaus, movingball);
+				if ( !(frame%30) ) capsule.cleanup();
 				
 				Waitdraw();
 				
@@ -810,7 +865,7 @@ global script arkanoid
 					for ( int q = Screen->NumNPCs(); q > 0; --q )
 					{ 
 						npc b = Screen->LoadNPC(q);
-						if ( b->Type != NPCT_OTHERFLOAT ) continue;
+						if ( b->Type != NPCT_OTHER ) continue;
 						//TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
 						//TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
 						movingball->DeadState = WDS_ALIVE;
@@ -1518,9 +1573,33 @@ const int CAPS_TYPE_LASER = 127;
 const int CAPS_TYPE_VAUS = 123;
 const int CAPS_TYPE_SLOW = 124;
 
+
 ffc script capsule
 {
-	void run(){}
+	void run(ffc v, lweapon b)
+	{
+		for ( int q = Screen->NumLWeapons(); q > 0; --q )
+		{
+			lweapon c = Screen->LoadLWeapon(q);
+			if ( c->ID == LW_SCRIPT2 )
+			{
+				if ( check_hitvaus(c,v,b) ) Remove(c);
+				if ( c->Y > 256 ) Remove(c);
+			}
+		}
+	}
+	void _run(ffc v, lweapon b)
+	{
+		for ( int q = Screen->NumLWeapons(); q > 0; --q )
+		{
+			lweapon c = Screen->LoadLWeapon(q);
+			if ( c->ID == LW_SCRIPT2 )
+			{
+				if ( check_hitvaus(c,v,b) ) Remove(c);
+				if ( c->Y > 256 ) Remove(c);
+			}
+		}
+	}
 	void create(int x, int y)
 	{
 		int type = choosetype();
@@ -1531,9 +1610,70 @@ ffc script capsule
 			capsule->Y = y;
 		}
 	}
+	void convert()
+	{
+		const int CAPS_EW_MISC_TYPE = 5;
+		const int CAPS_ITEM_ATTRIB_TYPE = 0;
+		const int CAPS_ITEM_SPRITE = 0;
+		item c; itemdata id;
+		for ( int q = Screen->NumItems(); q > 0; --q )
+		{
+			c = Screen->LoadItem(q);
+			id = Game->LoadItemData(c->ID);
+			if ( id->Family == IC_CUSTOM1 )
+			{
+				lweapon cap = Screen->CreateLWeapon(EW_SCRIPT2);
+				cap->X = c->X;
+				cap->Y = c->Y;
+				cap->Misc[CAPS_EW_MISC_TYPE] = id->Attributes[CAPS_ITEM_ATTRIB_TYPE];
+				cap->UseSprite(id->Sprites[CAPS_ITEM_SPRITE]);
+				//c->DrawYOffset = -16000;
+				cap->HitWidth = c->HitWidth;
+				cap->HitHeight = c->HitHeight;
+				Remove(c);
+				
+				cap->Dir = DIR_DOWN;
+				
+				cap->Step = CAPSULE_STEP;
+				cap->CollDetection = false;
+				cap->Behind = false; 
+				TraceNL(); TraceS("Behind is: "); TraceB(cap->Behind);
+			}
+		}
+	}
+	int get_type(lweapon c)
+	{
+		const int CAPS_EW_MISC_TYPE = 5;
+		return c->Misc[CAPS_EW_MISC_TYPE];
+	}
 	void drawover(item c)
 	{
 		DrawToLayer(c, 5, 128);
+	}
+	bool check_hitvaus(lweapon c, ffc v, lweapon b)
+	{
+		//mask out the area of the screen where the Vaus paddle isn't located, relative to the capsule hitbox. 
+		if ( (c->Y+c->HitHeight) < START_PADDLE_Y ) return false;
+		if ( c->Y > (START_PADDLE_Y+START_PADDLE_HEIGHT-2) ) return false; //last two pixels of vaus
+		if ( (c->X+c->HitWidth) < v->X ) return false;
+		if ( c->X > (v->X+(v->TileWidth*16)) ) return false; 
+		//if it hits, check the type
+		int captype = c->ID;
+		switch(get_type(c))
+		{
+			case CAPS_TYPE_EXTEND: { extend(v); return true; }
+			case CAPS_TYPE_BREAK: { escape(v); return true; }
+			case CAPS_TYPE_CATCH: { catchball(v); return true; }
+			case CAPS_TYPE_DIVIDE: { split(v,b); return true; }
+			case CAPS_TYPE_LASER: { laser(v); return true; }
+			case CAPS_TYPE_VAUS:{ extravaus(v); return true; }
+			case CAPS_TYPE_SLOW:{ slow(v,b); return true; }
+			default: break;
+		}
+				
+		return false;		
+			
+			
 	}
 	bool check_hitvaus(item c, ffc v, lweapon b)
 	{
@@ -1581,7 +1721,7 @@ ffc script capsule
 		extended = true;
 		//caught = 0;
 	}
-	void slow(ffc c, lweapon b)
+	void slow(ffc v, lweapon b)
 	{
 		TraceNL(); TraceS("Capsule SLOW struck vaus!!");
 		//v->Data = default;
@@ -1679,7 +1819,48 @@ ffc script capsule
 			if ( c->Y > 256 ) Remove(c);
 		}
 	}
+	void _do(ffc v, lweapon b)
+	{
+		for ( int q = Screen->NumLWeapons(); q > 0; --q )
+		{
+			lweapon c = Screen->LoadLWeapon(q);
+			if ( c->ID == EW_SCRIPT2 )
+			{
+				if ( check_hitvaus(c,v,b) ) Remove(c);
+				if ( c->Y > 256 ) Remove(c);
+			}
+		}
+	}
+	void cleanup()
+	{
+		for ( int q = Screen->NumLWeapons(); q > 0; --q )
+		{
+			lweapon c = Screen->LoadLWeapon(q);
+			if ( c->ID == EW_SCRIPT2 )
+			{
+				if ( c->Y > 256 ) Remove(c);
+			}
+		}
+	}
+	void cleanup(item c)
+	{
+		if ( c->Y > 256 ) Remove(c);
+	}
+	void all_clear()
+	{
+		for ( int q = Screen->NumLWeapons(); q > 0; --q )
+		{
+			lweapon c = Screen->LoadLWeapon(q);
+			if ( c->ID == EW_SCRIPT2 )
+			{
+				Remove(c);
+			}
+		}
+	}
+	
 }
+
+
 
 
 
@@ -1701,7 +1882,7 @@ ffc script brick
 		for ( int q = Screen->NumNPCs(); q > 0; --q )
 		{
 			n = Screen->LoadNPC(q);
-			if ( n->Type == NPCT_OTHERFLOAT ) 
+			if ( n->Type == NPCT_OTHER ) 
 			{
 				if ( n->HP < 1000 ) ++count;
 			}
