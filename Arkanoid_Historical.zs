@@ -1,4 +1,57 @@
 import "std.zh"
+
+
+const float DIR16_DEG_UP 		= 270;
+const float DIR16_DEG_UPUPLEFT = 247.5;
+
+const float DIR16_DEG_UPLEFT 	= 225;
+const float DIR16_DEG_LEFTLEFTUP = 202.5;
+const float DIR16_DEG_LEFT 		= 180;
+const float DIR16_DEG_LEFTLEFTDOWN = 157.5;
+const float DIR16_DEG_LEFTDOWN 	= 135;
+const float DIR16_DEG_DOWNDOWNLEFT = 112.5;
+const float DIR16_DEG_DOWN 		= 90;
+const float DIR16_DEG_DOWNDOWNRIGHT = 67.5;
+const float DIR16_DEG_RIGHTDOWN 	= 45;
+const float DIR16_DEG_RIGHTRIGHTDOWN = 22.5;
+const float DIR16_DEG_RIGHT 	= 0;
+const float DIR16_DEG_RIGHTRIGHTUP  = 292.5;
+const float DIR16_DEG_DIR_RIGHTUP 	= 315;
+
+const float DIR_16_RADS_INCREMENT = 0.3927; //Number of radians per 1/16 rotation
+
+const float DIR16_RADS_UP 		= 4.7214;
+const float DIR16_RADS_UPUPLEFT = 4.3197;
+const float DIR16_RADS_UPLEFT 	= 3.927;
+const float DIR16_RADS_LEFTLEFTUP = 3.5343;
+const float DIR16_RADS_LEFT 	= 3.1416; //3.1519; //Pi
+const float DIR16_RADS_LEFTLEFTDOWN = 2.7489;
+const float DIR16_RADS_LEFTDOWN 	= 2.3562; 
+const float DIR16_RADS_DOWNDOWNLEFT = 1.9635;
+const float DIR16_RADS_DOWN 	= 1.5708;
+const float DIR16_RADS_DOWNDOWNRIGHT = 1.1781;
+const float DIR16_RADS_RIGHTDOWN 	= 0.7854;
+const float DIR16_RADS_RIGHTRIGHTDOWN = 0.3927; 
+const float DIR16_RADS_RIGHT 	= 0; 
+const float DIR16_RADS_RIGHTRIGHTUP = 5.1051;
+const float DIR16_RADS_RIGHTUP 	= 5.4978;
+const float DIR16_RADS_RIGHTUPUP 	= 5.1141;
+
+//Ball Dir Compares
+const int BALL_MISC_DIR = 3; //Misc index to hold ball direction. 
+const int BALL_DIR_LLU = 0;
+const int BALL_DIR_LU = 1;
+const int BALL_DIR_UUL = 2;
+const int BALL_DIR_UUR = 3;
+const int BALL_DIR_RU = 4;
+const int BALL_DIR_RRU = 5;
+
+//There's a step speed at which the ball phases *through* the vaus! //FIXED with ball.clamp(). 
+					//Perhaps we should make the vaus an enemy, too? An invisible enemy to act as a failsafe?
+					//if the ball hits the vaus, it bounces.
+					
+			//Or just scrap the vaus ffc, and use an npc for it in general?
+
 //BALL NEEDS TO HAVE A 6PX BY 6PX HITBOX, AND THUS A HIT OFFSET OF -1,-1, so that ->HitBy[] returns when the ball hits a block, and
 //the ball is still not yet inside that object
 //Note: We also need to store the UID of each ball, as HitBy[] works from the UID, not the pointer. 
@@ -16,9 +69,32 @@ import "std.zh"
 	
 */
 
+// We need to either re-arrange the living/dead/death logic, or add another animation phase. 
+//May as well set up the Vaus explosion and add it with a SPARKLE LWeapon.
+
 //Arkanoid script
-//v0.11
-//15th August, 2018
+//v0.13
+//16th August, 2018
+
+//Radians for special directions. 
+const float DIR_UUL = 4.3197;
+const float DIR_LUU = 4.3197;
+const float DIR_LLU = 3.5343;
+const float DIR_LLD = 2.7489;
+const float DIR_DDL = 1.9635;
+const float DIR_DDR = 1.1781;
+const float DIR_RRD = 0.3927; 
+const float DIR_RRU = 5.1051;
+const float DIR_RUU = 5.1141;
+
+
+		
+
+const float ARKANOID_VERSION = 0.12;
+
+int GAME[256];
+const int GAME_MISC_FLAGS = 0;
+const int GMFS_PLAYED_GAME_OVER_MUSIC = 0x01;
 
 const int FFC_VAUS = 1;
 const int CMB_VAUS_EXTENDED = 1528;
@@ -29,7 +105,18 @@ const int MID_STAGE_START = 4;
 const int NPCM_AWARDED_POINTS = 3; //brick->Misc[], flag to mark if points were awarded to the player. 
 const int NPC_ATTRIB_POINTS = 0; //brick->Attributes[], value for score. 
 
+//Counters
+const int CR_SCORE = 7; //script 1
+const int CR_LIVES = 8; 
+
 int quit;
+
+const int QUIT_TITLE = -1;
+const int QUIT_GAME_RUNNING = 0; //i.e., !quit
+const int QUIT_GAMEOVER = 1;
+
+const int MAX_BALL_SPEED = 300;
+
 int caught;
 int frame;
 bool newstage = true;
@@ -52,6 +139,20 @@ int ball_uid;
 
 //animation
 int death_frame;
+
+int death_anim[DEATH_ANIM_MAX]; 
+const int DEATH_ANIM_TIMER = 0;
+const int DEATH_ANIM_1 = 1; //1-7 Unused 
+const int DEATH_ANIM_2 = 2;
+const int DEATH_ANIM_3 = 3;
+const int DEATH_ANIM_4 = 4;
+const int DEATH_ANIM_5 = 5;
+const int DEATH_ANIM_6 = 6;
+const int DEATH_ANIM_COUNTDOWN_TO_QUIT = 7;
+
+const int DEATH_ANIM_MAX = 8;
+
+const int COUNTDOWN_TO_QUIT_FRAMES = 289; //36*8+1;
 
 int templayer[4];
 
@@ -299,140 +400,226 @@ const int MISC_DEAD = 1; //Misc index of Vaud->Misc[]
 const int MISC_LAUNCHED = 0; //Misc index of ball->Misc[]
 
 const int BALL_MINIMUM_Y = 24; //Invisible line at which point, ball is lost. 
+
+ffc script holdlink
+{
+	void run()
+	{
+		while(1)
+		{
+			Link->Y = START_PADDLE_Y - 4;
+			Waitframe();
+		}
+	}
+}
+		
+
 global script arkanoid
 {
 	
 	void run()
 	{
-		quit = -1;
-		frame = -1;
+		TraceNL(); TraceS("Starting Arkanoid"); TraceNL(); TraceS("Game 'quit' state: "); Trace(quit);
+		TraceNL(); TraceS("Game version, Alpha "); Trace(ARKANOID_VERSION); 
+		
+		//frame = -1;
 		ffc vaus = Screen->LoadFFC(FFC_VAUS);
 		lweapon movingball;
+		npc vaus_guard; 
 		bool ext;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
-		Trace(quit);
+		
 		ball.setup_sprite(SPR_BALL);
 		while(true)
 		{
-			//TraceS("Starting Arkanoid");
-			++frame;
-			hold_Link();
-			if ( newstage ) 
+			while(!quit)
 			{
-				Game->PlayMIDI(MID_STAGE_START);
-				brick.setup();
-				Waitframes(6);
-				
-				brick.clear_combos();
-				
-				newstage = false;
-				paddle.setup(vaus);
-				ball.create(vaus);
-				movingball = vaus->Misc[MISC_BALLID];
-			}
-			if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
-			{
-				Game->PlayMIDI(MID_STAGE_START);
-				vaus->Misc[MISC_DEAD] = 0; 
-				revive_vaus = false;
-				paddle.setup(vaus);
-				ball.create(vaus);
-				movingball = vaus->Misc[MISC_BALLID];
-			}
-			
-			if ( !vaus->Misc[MISC_DEAD] )
-			{
-				if ( Input->Key[KEY_P] ) Trace(movingball->UID); //Frick, I'm an idiot. HIT_BY_LWEAPON is the SCREEN INDEX< not the UID!!
-					//2.54 Absolutely needs HitBy_UID!
-				change_setting(); //check for a setting change_setting
-				paddle.extend(vaus);
-				paddle.check_input();
-				paddle.move(USE_MOUSE, USE_ACCEL, vaus);
-				
-				ball.launch(movingball);
-				if ( !ball.launched(movingball) )
+				++frame;
+				if ( Input->Key[KEY_L] ) ++Game->Counter[CR_LIVES]; 
+				hold_Link_y(); //Don't allow Link to leave the screen, bt
+					//keep his X and Y matched to the Vaus!
+				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
+				if ( newstage ) 
 				{
-					ball.move_with_vaus(movingball, vaus);
+					//vaus_guard = Screen->CreateNPC(NPC_VAUSGUARD);
+					Game->PlayMIDI(MID_STAGE_START);
+					brick.setup();
+					Waitframes(6);
+					
+					brick.clear_combos();
+					
+					newstage = false;
+					paddle.setup(vaus);
+					ball.create(vaus);
+					movingball = vaus->Misc[MISC_BALLID];
 				}
-				
-				ball.check_ceiling(movingball);
-				ball.check_leftwall(movingball);
-				ball.check_rightwall(movingball);
-				ball.check_hitvaus(movingball, vaus);
-				/*
-				
-				I moved this to after Waitdraw, because I wanted the post-draw timing for ball bounce, and to ensure that
-				the movingball lweapon stayed alive. -Z (Alpha 0.10)
-				//Bounce ball on bricks. 
-				for ( int q = Screen->NumNPCs(); q > 0; --q )
-				{ 
-					npc b = Screen->LoadNPC(q);
-					if ( b->Type != NPCT_OTHERFLOAT ) continue;
-					TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
-					TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
-					brick.take_hit(b, movingball);
-				}
-				*/
-				movingball->DeadState = WDS_ALIVE; //Force it alive at all times if the vaus is alive. 
-					//We'll need another solition once we do the 3-way split ball. Bleah. 
-			}
-			
-			//It's probably unwise to run this block twice! Where do I want it, before or after Waitdraw() ? -Z
-			else
-			{
-				paddle.dead(vaus);
-				while ( (frame - 100) < death_frame ) 
+				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
-					//we should hide the vaus, and restart the stage here. 
-					++frame;
-					Waitdraw(); //Something is preventing the vaus from changing into the explosion style. S
-					Waitframe();
+					Game->PlayMIDI(MID_STAGE_START);
+					vaus->Misc[MISC_DEAD] = 0; 
+					revive_vaus = false;
+					
+					paddle.setup(vaus);
+					ball.create(vaus);
+					movingball = vaus->Misc[MISC_BALLID];
 				}
-				lweapon deadball = movingball; 
-				deadball->DeadState = WDS_DEAD; 
-				movingball = vaus->Misc[10];
-				revive_vaus = true; 
 				
-			}
-			
-			Waitdraw();
-			
-			
-			if ( !vaus->Misc[MISC_DEAD] )
-			{
-				movingball->DeadState = WDS_ALIVE;
+				if ( !vaus->Misc[MISC_DEAD] )
+				{
+					//if ( Input->Key[KEY_P] ) Trace(movingball->UID); //Frick, I'm an idiot. HIT_BY_LWEAPON is the SCREEN INDEX< not the UID!!
+						//2.54 Absolutely needs HitBy_UID!
+					if ( Input->Key[KEY_1] ) Trace(frame);
+					//if ( frame%60 == 0 ) { Trace(movingball->Step); }
+					//Trace(movingball->Step);
+					change_setting(); //check for a setting change_setting
+					paddle.extend(vaus);
+					paddle.check_input();
+					paddle.move(USE_MOUSE, USE_ACCEL, vaus);
+					
+					ball.launch(movingball);
+					if ( !ball.launched(movingball) )
+					{
+						ball.move_with_vaus(movingball, vaus);
+					}
+					
+					
+					//clamp within bounds - MANDATORY because very fast Step speeds can cause the ball
+					//to *phase* through pseudo-solid objects, such as walls and the Vaus. 
+					ball.clamp_rightwall(movingball);
+					ball.clamp_ceiling(movingball);
+					ball.clamp_leftwall(movingball);
+					ball.clamp_bottom(movingball, vaus); 
+					
+					
+					//ball wall bounce checks
+					ball.check_ceiling(movingball);
+					ball.check_leftwall(movingball);
+					ball.check_rightwall(movingball);
+					ball.check_hitvaus(movingball, vaus);
+					//ball.set_speed(movingball);
+					/*
+					
+					I moved this to after Waitdraw, because I wanted the post-draw timing for ball bounce, and to ensure that
+					the movingball lweapon stayed alive. -Z (Alpha 0.10)
+					//Bounce ball on bricks. 
+					for ( int q = Screen->NumNPCs(); q > 0; --q )
+					{ 
+						npc b = Screen->LoadNPC(q);
+						if ( b->Type != NPCT_OTHERFLOAT ) continue;
+						TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
+						TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
+						brick.take_hit(b, movingball);
+					}
+					*/
+					movingball->DeadState = WDS_ALIVE; //Force it alive at all times if the vaus is alive. 
+						//We'll need another solition once we do the 3-way split ball. Bleah. 
+				}
 				
-				//Bounce ball on bricks. 
-				for ( int q = Screen->NumNPCs(); q > 0; --q )
-				{ 
-					npc b = Screen->LoadNPC(q);
-					if ( b->Type != NPCT_OTHERFLOAT ) continue;
-					//TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
-					//TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
+				//It's probably unwise to run this block twice! Where do I want it, before or after Waitdraw() ? -Z
+				else
+				{
+					paddle.dead(vaus); //Set the death animation here. 
+					
+					/*
+					while ( (frame - 100) < death_frame ) 
+					{
+						//we should hide the vaus, and restart the stage here. 
+						++frame;
+						Waitdraw(); //Something is preventing the vaus from changing into the explosion style. S
+						Waitframe();
+					}
+					lweapon deadball = movingball; 
+					deadball->DeadState = WDS_DEAD; 
+					movingball = vaus->Misc[10];
+					if ( Game->Counter[CR_LIVES] ) 
+					{
+						--Game->Counter[CR_LIVES];
+						revive_vaus = true; 
+					}
+					*/
+					
+				}
+				
+				
+				Waitdraw();
+				
+				hold_Link_y();
+				
+				if ( !vaus->Misc[MISC_DEAD] )
+				{
 					movingball->DeadState = WDS_ALIVE;
-					brick.take_hit(b, movingball);
+					
+					//Bounce ball on bricks. 
+					for ( int q = Screen->NumNPCs(); q > 0; --q )
+					{ 
+						npc b = Screen->LoadNPC(q);
+						if ( b->Type != NPCT_OTHERFLOAT ) continue;
+						//TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
+						//TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
+						movingball->DeadState = WDS_ALIVE;
+						//TraceNL(); TraceS("movingball ptr: "); Trace(movingball); 
+						brick.take_hit(b, movingball);
+					}
+					
 				}
-				
-			}
-			else
-			{
-				paddle.dead(vaus);
-				while ( (frame - 100) < death_frame ) 
+				else
 				{
-					//we should hide the vaus, and restart the stage here. 
-					++frame;
-					Waitdraw();
-					Waitframe();
+					paddle.dead(vaus);
+					while ( (frame - 100) < death_frame ) 
+					{
+						//we should hide the vaus, and restart the stage here. 
+						++frame;
+						Waitdraw();
+						Waitframe();
+					}
+					lweapon deadball = movingball; 
+					deadball->DeadState = WDS_DEAD; 
+					movingball = vaus->Misc[10]; //Because = NULL() requires alpha 32. :D
+					if ( Game->Counter[CR_LIVES] ) 
+					{
+						--Game->Counter[CR_LIVES];
+						revive_vaus = true; 
+					}
+					else //Ugh, this is a mess. I might want to rewrite the gane over portion, as it feels as if it'll be a biugger kludge than just calling break.
+					{
+						if ( !death_anim[DEATH_ANIM_COUNTDOWN_TO_QUIT] ) 
+						{
+							death_anim[DEATH_ANIM_COUNTDOWN_TO_QUIT] = COUNTDOWN_TO_QUIT_FRAMES;
+							continue;
+						}
+						else
+						{
+							--death_anim[DEATH_ANIM_COUNTDOWN_TO_QUIT];
+							if ( death_anim[DEATH_ANIM_COUNTDOWN_TO_QUIT] == 1 ) 
+							{
+								quit = QUIT_GAMEOVER; //Game over state. 
+								TraceNL(); TraceS("Game 'quit' state is now: "); Trace(quit);
+							}
+						}
+					}
+						
 				}
-				lweapon deadball = movingball; 
-				deadball->DeadState = WDS_DEAD; 
-				movingball = vaus->Misc[10]; //Because = NULL() requires alpha 32. :D
-				revive_vaus = true; 
 				
+				Waitframe();
 			}
 			
-			Waitframe();
+			while (quit == QUIT_GAMEOVER) //Game Over
+			{
+				if ( !(GAME[GAME_MISC_FLAGS]&GMFS_PLAYED_GAME_OVER_MUSIC) )
+				{
+					GAME[GAME_MISC_FLAGS]|=GMFS_PLAYED_GAME_OVER_MUSIC;
+					//Play Game over MIDI
+					Game->PlayMIDI(1);
+				}
+					
+				Screen->DrawString(6, 96, 80, 1, 0x51, 0x00, 0, "GAME OVER", 128);
+				
+				Waitdraw(); 
+				Waitframe();
+			}
+			//We should never reach here. 
+			Waitframe(); 
 		}
 	}
 	void change_setting()
@@ -444,10 +631,15 @@ global script arkanoid
 		if ( Input->Key[KEY_T] ) --paddle_speed; // paddle_speed = vbound(paddle_speed
 		if ( Input->Key[KEY_Y] ) ++paddle_speed; // paddle_speed = vbound(paddle_speed
 	}
-	void hold_Link()
+	void hold_Link_x(ffc v)
 	{
-		Link->X = 60; Link->Y = 60;
+		Link->X = v->X+(v->TileWidth*8);
 	}
+	void hold_Link_y()
+	{
+		Link->Y = START_PADDLE_Y - 4;
+	}
+	bool quit() { return ( quit ); }
 	
 }
 
@@ -464,6 +656,12 @@ ffc script ball
 	{
 		spritedata sd = Game->LoadSpriteData(sprite_id);
 		sd->Tile = TILE_BALL;
+	}
+	void set_speed(lweapon b, int speed)
+	{
+		//Trace(bounces);
+		b->Step = speed; // bound(bounces,0,MAX_BOUNCES);
+		//Trace(b->Step);
 	}
 	void create(ffc vaus_id) //send the ball lweapon pointer back to the vaus
 	{
@@ -505,21 +703,58 @@ ffc script ball
 	{
 		
 	}
+	float bound(int val, int min, int max)
+	{
+		if ( val < min ) return min;
+		if ( val > max ) return max;
+		return val;
+	}
 	//Not launched yet.
 	void move_with_vaus(lweapon b, ffc v)
 	{
 		b->X = v->X+18;
 	}
+	//ball.clamp*() are needed for when the step speed is so great that the ball skips past the equality checks.
+	void clamp_ceiling(lweapon b)
+	{
+		if ( b->Y < BALL_MIN_Y )			
+		{
+			b->Y = BALL_MIN_Y;
+		}
+	}
+	void clamp_leftwall(lweapon b)
+	{
+		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( b->X < BALL_MIN_X ) b ->X = BALL_MIN_X;
+	}
+	void clamp_rightwall(lweapon b)
+	{
+		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( b->X > BALL_MAX_X ) b->X = BALL_MAX_X;
+	}
+	/*
+	void clamp_bottom(lweapon b, ffc v)
+	{
+		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( b->Y+4 > v->Y+8 ) dead(b,v);
+	}
+	*/
+	//A function to check of the bounding will prevent the ball from falling out of field.
+	void clamp_bottom(lweapon b, ffc v)
+	{
+		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( b->Y+4 > v->Y ) b->Y = v->Y-4;
+	}
 	void check_ceiling(lweapon b)
 	{
-		if ( b->Y <= BALL_MIN_Y )			
+		if ( b->Y == BALL_MIN_Y )			
 		{
 			Game->PlaySound(7);
 			switch(b->Dir)
 			{
-				case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; break; }
-				case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; break; }
-				default: { b->Dir = DIR_DOWN; break; }
+				case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
 			}
 		}
 	}
@@ -531,9 +766,9 @@ ffc script ball
 			Game->PlaySound(7);
 			switch(b->Dir)
 			{
-				case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; break; }
-				case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; break; }
-				default: { b->Dir = DIR_DOWN; break; }
+				case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
 			}
 		}
 	}
@@ -545,14 +780,16 @@ ffc script ball
 			Game->PlaySound(7);
 			switch(b->Dir)
 			{
-				case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; break; }
-				case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; break; }
-				default: { b->Dir = DIR_DOWN; break; }
+				case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
 			}
 		}
 	}
 	void check_hitvaus(lweapon b, ffc v)
 	{
+		int hit_position; int vaus_midpoint =  v->X+(((v->TileWidth*16)/2)-1);
+		int ball_midpoint = b->X+2;
 		if ( launched(b) )
 		{
 			if ( b->Dir == DIR_RIGHTUP ) return;
@@ -567,14 +804,140 @@ ffc script ball
 					if ( b->X <= v->X+(v->TileWidth*16) ) //no +3 here, because it's the actual X, so the first pixel of the ball is covered by the last pixel of the vaus.
 					{
 						Game->PlaySound(6);
-						b->Y = v->Y-1;
-						switch(b->Dir)
+						
+						if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
 						{
-							case DIR_LEFTDOWN: { b->Dir = DIR_LEFTUP; break; }
-							case DIR_RIGHTDOWN: { b->Dir = DIR_RIGHTUP; break; }
-							default: { b->Dir = DIR_DOWN; break; }
+							//divide midpoint into three sections
+							if ( ball_midpoint <= (vaus_midpoint/3) )
+							{
+								//hit the leftmost third, use LLU
+								//set angular, then Angle == LLU
+								TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Left-Up");
+								--b->Y;
+								b->Angular = true;
+								b->Angle = DIR_LLU;
+								b->Misc[BALL_MISC_DIR] = BALL_DIR_LLU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+								
+							}
+							else if ( ball_midpoint <= (vaus_midpoint/2) )
+							{
+								//hit the centre midpoint
+								//set angular = false
+								//set DIR_UL
+								TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
+								--b->Y;
+								b->Angular = false;
+								b->Dir = DIR_UPLEFT;
+								b->Misc[BALL_MISC_DIR] = BALL_DIR_LU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+							}
+							else //hit close to centre
+							{
+								//set angular true
+								//set dir to UUL
+								TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Up-Up");
+								--b->Y;
+								b->Angular = true;
+								b->Angle = DIR_LUU;
+								b->Misc[BALL_MISC_DIR] = BALL_DIR_UUL;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+							}
 						}
+						else if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
+						{
+							//divide midpoint into three sections
+							if ( ball_midpoint >= (vaus_midpoint+(vaus_midpoint/3)) )
+							{
+								//hit close to centre
+								//set angular true
+								//set dir to UUR
+								TraceNL(); TraceS("Setting ball dir to ANGULAR Right-Up-Up");
+								--b->Y;
+								b->Angular = true;
+								b->Angle = DIR_RUU;
+								b->Misc[BALL_MISC_DIR] = BALL_DIR_UUR;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+								
+							}
+							else if ( ball_midpoint >= (vaus_midpoint+(vaus_midpoint/2)) )
+							{
+								//hit the centre midpoint
+								//set angular = false
+								//set DIR_UR
+								TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
+								--b->Y;
+								b->Angular = false;
+								b->Dir = DIR_UPRIGHT;
+								b->Misc[BALL_MISC_DIR] = BALL_DIR_RU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+							}
+							else //hit close to rightmost edge
+							{
+								//set angular true
+								//set dir to URR
+								TraceNL(); TraceS("Setting ball dir to ANGULAR Right-Right--Up");
+								--b->Y;
+								b->Angular = true;
+								b->Angle = DIR_RRU;
+								b->Misc[BALL_MISC_DIR] = BALL_DIR_RRU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+							}
+							
+						}
+						/*
+						if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
+						{
+							
+								//hit the centre midpoint
+								//set angular = false
+								//set DIR_UL
+								TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
+								b->Y = v->Y-1;
+								b->Angular = false;
+								b->Dir = DIR_UPLEFT;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+							
+						}
+						else if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
+						{
+							
+								//hit the centre midpoint
+								//set angular = false
+								//set DIR_UR
+								TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
+								b->Y = v->Y-6;
+								b->Angular = true;
+								b->Angle = DIR16_RADS_RIGHTRIGHTUP;
+								//b->Dir = DIR_UPRIGHT;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								return;
+							
+							
+						}
+						*/
+						else
+						{
+							//failsafe
+							switch(b->Dir)
+							{
+								case DIR_LEFTDOWN: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								case DIR_RIGHTDOWN: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+							}
+						}
+						
+						
+						
 					}
+					
 					else 
 					{
 						dead(b,v);
@@ -712,11 +1075,32 @@ ffc script brick
 	void run()
 	{
 	}
+	float bound(int val, int min, int max)
+	{
+		if ( val < min ) return min;
+		if ( val > max ) return max;
+		return val;
+	}
 	bool hit(npc a, lweapon v)
 	{
-		Link->Misc[0] = v; //We'll use this as scratch untyped space for the moment. -Z
+		if ( a->HitBy[HIT_BY_LWEAPON] < 1 ) return false; 
+		a->Misc[12] = Screen->LoadLWeapon(a->HitBy[HIT_BY_LWEAPON]);
+		lweapon hitwpn = a->Misc[12];
+		return ( hitwpn->UID == v->UID );
 		
-		int temp_UID = v->UID * 10000; //this is a bug in HITBY[]. The HitBy value being stored is being multiplied by 10000, and it should not be.
+		//int indx; //Until we have UIDs working for HitBy[], we need to do it this way. 
+		//for ( int q = Screen->NumLWeapons(); q > 0; --q ) 
+		//{
+		//	lweapon temp = Screen->LoadLWeapon(q);
+		//	if ( temp->UID == v->UID ) 
+		//	{ 
+		//		indx = q; break;
+		//	}
+		//}
+		//Link->Misc[0] = v; //We'll use this as scratch untyped space for the moment. -Z
+		//TraceS("brick.hit() Link->Misc[] is: "); Trace(Link->Misc[0]);
+		//TraceS("brick.hit() v is: "); Trace(v);
+		//int temp_UID = v->UID * 10000; //this is a bug in HITBY[]. The HitBy value being stored is being multiplied by 10000, and it should not be.
 			//as UID is not, and NEVER should be!!!
 		//TraceNL(); TraceS("v->UID is: "); Trace(v->UID);
 		/*
@@ -736,12 +1120,13 @@ ffc script brick
 		//{ 
 		//	TraceNL(); TraceS("a->HitBy[HIT_BY_LWEAPON] id: "); Trace(a->HitBy[HIT_BY_LWEAPON]); 
 		//	TraceNL();
-		//	TraceS("Our Link->Misc scratch value is: "); Trace((Link->Misc[0]+1));
+		//	TraceS("Our Link->Misc scratch value `is: "); Trace((Link->Misc[0]+1));
 		//}
 		
 		//! We'll use this method again when we add UIDs to HitBy[] ! -Z
 		//return ( a->HitBy[HIT_BY_LWEAPON] == temp_UID ); 
-		return ( a->HitBy[HIT_BY_LWEAPON] == (Link->Misc[0]+1) ); 
+		//return ( a->HitBy[HIT_BY_LWEAPON] == indx ); //(Link->Misc[0]+1) ); 
+		
 	}
 	bool hit_below(npc a, lweapon v)
 	{
@@ -774,8 +1159,8 @@ ffc script brick
 			{
 				switch ( v->Dir ) 
 				{
-					case DIR_UPRIGHT: { v->Dir = DIR_DOWNRIGHT; break; }
-					case DIR_UPLEFT: { v->Dir = DIR_DOWNLEFT; break; }
+					case DIR_UPRIGHT: { v->Dir = DIR_DOWNRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
+					case DIR_UPLEFT: { v->Dir = DIR_DOWNLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
 					default: { TraceS("hit_below() found an illegal ball direction"); break; }
 				}
 				if ( a->HP <= 0 ) 
@@ -796,8 +1181,8 @@ ffc script brick
 			{
 				switch ( v->Dir ) 
 				{
-					case DIR_DOWNLEFT: { v->Dir = DIR_UPLEFT; break; }
-					case DIR_DOWNRIGHT: { v->Dir = DIR_UPRIGHT; break; }
+					case DIR_DOWNLEFT: { v->Dir = DIR_UPLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
+					case DIR_DOWNRIGHT: { v->Dir = DIR_UPRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
 					default: { TraceS("hit_above() found an illegal ball direction"); break; }
 				}
 				if ( a->HP <= 0 ) 
@@ -814,8 +1199,8 @@ ffc script brick
 			{
 				switch ( v->Dir ) 
 				{
-					case DIR_UPRIGHT: { v->Dir = DIR_UPLEFT; break; }
-					case DIR_DOWNRIGHT: { v->Dir = DIR_DOWNLEFT; break; }
+					case DIR_UPRIGHT: { v->Dir = DIR_UPLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
+					case DIR_DOWNRIGHT: { v->Dir = DIR_DOWNLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED);  break; }
 					default: { TraceS("hit_left() found an illegal ball direction"); break; }
 				}
 				if ( a->HP <= 0 ) 
@@ -831,8 +1216,8 @@ ffc script brick
 			{
 				switch ( v->Dir ) 
 				{
-					case DIR_UPLEFT: { v->Dir = DIR_UPRIGHT; break; }
-					case DIR_DOWNLEFT: { v->Dir = DIR_DOWNRIGHT; break; }
+					case DIR_UPLEFT: { v->Dir = DIR_UPRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
+					case DIR_DOWNLEFT: { v->Dir = DIR_DOWNRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
 					default: { TraceS("hit_below() found an illegal ball direction"); break; }
 				}
 				if ( a->HP <= 0 ) 
@@ -971,6 +1356,9 @@ global script init
 {
 	void run()
 	{
+		quit = 0;
+		frame = -1;
+		Game->Counter[CR_LIVES] = 5;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
 	}
@@ -980,6 +1368,9 @@ global script Init
 {
 	void run()
 	{
+		quit = 0;
+		frame = -1;
+		Game->Counter[CR_LIVES] = 5;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
 	}
@@ -989,6 +1380,9 @@ global script onContinue
 {
 	void run()
 	{
+		quit = 0;
+		frame = -1;
+		Game->Counter[CR_LIVES] = 5;
 		Link->Invisible = true; 
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
