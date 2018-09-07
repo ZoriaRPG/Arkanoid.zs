@@ -1,38 +1,21 @@
 import "std.zh"
 
+
+//¬ Bug: Left centre paddle zone is not hitting ball UUL? Might be fixed now. 
 //TODO: 
-// Add catch, and laser
+
 // Add corner check for WALLS for various angles.
 // Implement new angles after collision with walls and bricks.
 // Implement enemies. 
+// 
 
-	/*Capsule Rewrite
+	
 
 
-	1. Use itemdata->attribs for caps type
-	2. Use itemdata->sprites for the sprite to use on an eweapon
-	3. If the item appears, spawn an eweapon in its place and remove the item
-	4. Apply the itemdata->id to ew->Misc[] and read it in place of the item id
-		4(a). 	eweapons wouldnt need to be manually moved:
-			Just set their dir = down and a step speed
-		4(b).	Blocks can use item dropsets for pills to drop
-	5. Set the default item drawyoffset to offscreen, so that eweapon spawns aren't visible
-		5(a).	Now we can rid ourselves of the script draws and the loops to move everything
-	6. Perform removal of eweapons every 10 frames with capsule.cleanup() called if !(frame%10)
-	*/
-
-/* Wall drop issue might be because the dir is being set 
-when the ball is past the wall, then the ball is being 
-moved BACK tot he wall, and the dir is being checked again.
-
-Might be fixed by either storing the previous ball dir on a change, and 
-if it goes out of bounds, force that dir again after moving it back into bounds;
-or by only checking for equality on the walls.
-*/
 
 //Arkanoid script
-//v0.30
-//30th August, 2018
+//v0.33
+//31st August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -48,7 +31,7 @@ or by only checking for equality on the walls.
 	
 */
 
-ffc script version_alpha_0_30
+ffc script version_alpha_0_33
 {
 	void run(){}
 }
@@ -98,14 +81,22 @@ ffc script version_alpha_0_30
 ///	     : Extra life from points set to 1000. Capsules award 10 points each. 
 ///	     : Shift+M now enabled mouse and sets fast_mouse = 2;
 ///Alpha 0.30: Fixed timing for music playing and vaus spawning, and fixed visual bugs created by calling capsule.alloff() with improper sequencing.
+///          : Made Link's base shieldless down tile blank, to hide graphical glitch caused by the continue script not running before Link is drawn.
+///Alpha 0.31: Refactored ball.check_hitvaus() to correct angles and locations, adding paddle.centre() and paddle.get_segment() to return areas.
+///          : Added paddle zone debug drawlines, enabled using config DEBUG_MIDPOINTS. 
+///Alpha 0.32: Added complete laser powerup. 
+///Alpha 0.33: Added complete catch powerup. 
+///          :
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
 //! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
 //! I should be drawing red v-lines over the points where the ball zones are on the paddle. 
 
 typedef const int config;
+const int ENABLE = 1;
+const int DISABLE = 0;
 
-
+config DEBUG_MIDPOINTS = DISABLE;
 config BRICK_CHANCE_CAPSULE 	= 50;
 config FAST_MOUSE_MAX	 	= 6;
 config MAX_STAGES 		= 2; //Number of stages/levels in the game.
@@ -115,11 +106,26 @@ config STARTING_LIVES 		= 5;
 config CAPSULE_FALL_SPEED 	= 1;
 config BALL_INITIAL_STEP 	= 90;
 config CAPSULE_STEP		= 80;
+config LASER_COOLDOWN_TIME	= 20;
 
+const int LASER_LEFT_X_OFS_FROM_MIDPOINT = 6;
+const int LASER_RIGHT_X_OFS_FROM_MIDPOINT = 5;
+const int LASER_HEIGHT = 10;
+const int LASER_WIDTH = 2;
+const int SPR_LASER = 95;
+const int LASER_STEP = 120;
+
+const int BALL_MISC_CAUGHT = 17;
+const int BALL_MISC_OLDSTEP = 18;
+const int BALL_MISC_OLDANGULAR = 19;
+const int BALL_MISC_OLDANGLE = 20;
+const int BALL_MISC_OLDDIR = 21;
+
+int caught_relative_ball_vaus_x;
 
 typedef const int sfx;
 
-sfx SFC_LASER = 3;
+sfx SFX_LASER = 3;
 sfx SFX_KILLENEMY = 2;
 sfx SFX_EXTEND = 4;
 sfx SFX_BALL_HIT_VAUS = 6;
@@ -164,8 +170,10 @@ const float DIR_DDR = 1.1781;
 const float DIR_RDD = 1.1781;
 const float DIR_RRD = 0.3927; 
 const float DIR_DRR = 0.3927; 
-const float DIR_RRU = 5.1051;
-const float DIR_URR = 5.1051;
+//const float DIR_RRU = 5.1051;
+//const float DIR_URR = 5.1051;
+const float DIR_RRU = 5.8905;
+const float DIR_URR = 5.8905;
 const float DIR_RUU = 5.1141;
 const float DIR_UUR = 5.1141;
 
@@ -221,6 +229,7 @@ int USE_MOUSE = 0; //Are we using the mouse?
 
 //Vaus states
 bool revive_vaus = false; 
+int laser_cooldown;
 bool extended;
 bool laser;
 int caught; //States: 0, none. 1: Vaus can catch ball. 2: Vaus is holding the ball. 
@@ -331,6 +340,61 @@ const int CB_AXIS_RIGHT	= 17;
 ffc script paddle
 {
 	void run(){}
+	
+	int centre(ffc v)
+	{
+		return (v->X + (v->TileWidth*8));
+	}
+	//0, left tip [LLU]
+	//1, left slice [LU]
+	//2, left midpoint [LUU]
+	//3, right midpoint [RUU]
+	//4, right slice [RU]
+	//5, right tip [RRU]
+	
+	int get_segment(ffc v, int portion)
+	{
+		int middle_section = Floor((v->TileWidth*16)/6);
+		switch(portion)
+		{
+			case 0:
+			{
+				return v->X + (Cond(extended,6,4));
+			}
+			case 1:
+			{
+				return v->X + (Cond(extended,18,13));
+			}
+			case 2:
+			{
+				return ( centre(v) );
+			}
+			case 3:
+			{
+				return (centre(v)+1);
+			}
+			case 4:
+			{
+				return (v->X+(v->TileWidth*16)-(Cond(extended,18,13)));
+				
+			}
+			case 5:
+			{
+				return (v->X+(v->TileWidth*16) - (Cond(extended,6,4)));
+			}
+			default: return 0;
+		}
+	}
+	
+	void draw_midpoints(ffc v)
+	{
+		if ( !DEBUG_MIDPOINTS ) return;
+		for ( int q = 0; q < 6; ++q )
+		{
+			Screen->Line(0, get_segment(v,q), 0, get_segment(v,q), 256, 
+				0x02+(q*0x10), -1, 0, 0, 0, 128	);
+		}
+	}
 	
 	bool move(bool mouse, bool accel, ffc p)
 	{
@@ -591,6 +655,56 @@ ffc script paddle
 		death_frame = frame;
 	}
 	
+	bool pressfire()
+	{
+		for ( int q = CB_A; q < CB_R; ++q ) 
+		{
+			if ( Input->Press[q] ) { return true; }
+		}
+		if ( USE_MOUSE ) 
+		{
+			//if ( Input->Mouse[_MOUSE_LCLICK] )  //Not working?!
+			if ( Link->InputMouseB )
+				return true;
+		}
+		return false;
+	}
+	
+	void shoot_laser(ffc v)
+	{
+		if ( !laser ) return;
+		if ( laser_cooldown ) 
+		{
+			--laser_cooldown;
+			return;
+		}
+		if ( pressfire() )
+		{
+			lweapon laser[2];
+			Game->PlaySound(SFX_LASER);
+			laser[0] = Screen->CreateLWeapon(LW_ARROW);
+			laser[0]->Y = v->Y-LASER_HEIGHT;
+			laser[0]->X = paddle.centre(v) - LASER_LEFT_X_OFS_FROM_MIDPOINT;
+			laser[0]->Damage = 1;
+			laser[0]->HitWidth = LASER_WIDTH;
+			laser[0]->HitHeight = LASER_HEIGHT;
+			laser[0]->UseSprite(SPR_LASER);
+			laser[0]->Dir = DIR_UP;
+			laser[0]->Step = LASER_STEP;
+			laser[1] = Screen->CreateLWeapon(LW_ARROW);
+			laser[1]->Y = v->Y-LASER_HEIGHT;
+			laser[1]->X = paddle.centre(v) + LASER_RIGHT_X_OFS_FROM_MIDPOINT;
+			laser[1]->Damage = 1;
+			laser[1]->HitWidth = LASER_WIDTH;
+			laser[1]->HitHeight = LASER_HEIGHT;
+			laser[1]->UseSprite(SPR_LASER);
+			laser[1]->Dir = DIR_UP;
+			laser[1]->Step = LASER_STEP;
+			laser_cooldown = LASER_COOLDOWN_TIME;
+		}
+		
+		
+	}
 	
 }
 
@@ -619,6 +733,17 @@ global script arkanoid
 	
 	void run()
 	{
+		Game->Misc[0] = 100;
+		TraceS("Game->Misc[0] is: "); Trace(Game->Misc[0]);
+		
+		shopdata sd = Game->LoadShopData(2);
+		for ( int q = 0; q < 3; ++q )
+		{
+			TraceNL(); TraceS("Shop Item: "); Trace(sd->Item[q]);
+			TraceNL(); TraceS("Shop Price: "); Trace(sd->Price[q]);
+		}
+		
+		
 		check_min_zc_build();
 		
 		TraceNL(); TraceS("Starting Arkanoid"); TraceNL(); TraceS("Game 'quit' state: "); Trace(quit);
@@ -694,7 +819,7 @@ global script arkanoid
 					for ( int q = 0; q < 180; ++q ) WaitNoAction();
 					TraceS("Setting up Vaus on a new stage"); 
 					paddle.setup(vaus);
-					capsule.alloff(vaus); //clear powerup status
+					capsule.alloff(vaus,movingball); //clear powerup status
 					TraceS("Creating a ball on a new stage");
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
@@ -741,7 +866,7 @@ global script arkanoid
 					revive_vaus = false;
 					
 					paddle.setup(vaus);
-					capsule.alloff(vaus);
+					capsule.alloff(vaus,movingball);
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
 				}
@@ -810,10 +935,45 @@ global script arkanoid
 					ball.launch(movingball);
 					if ( !ball.launched(movingball) )
 					{
+						
 						ball.move_with_vaus(movingball, vaus);
+							
+					}
+					
+					if ( movingball->Misc[BALL_MISC_CAUGHT] )
+					{
+						//move relative to vaus
+						ball.move_relative_to_vaus(movingball, vaus);
+						if ( paddle.pressfire() )
+						{
+							TraceNL(); TraceS("Pressed fire on caught ball.");
+							//ball.launched(movingball,true);
+							--movingball->Y;
+							movingball->Step = movingball->Misc[BALL_MISC_OLDSTEP];
+							/*
+							movingball->Angular = (movingball->Misc[BALL_MISC_OLDANGULAR]);
+							if ( movingball->Angular )
+							{
+								movingball->Angle = movingball->Misc[BALL_MISC_OLDANGLE];
+								movingball->Dir = movingball->Misc[BALL_MISC_OLDDIR];
+							}
+							else movingball->Dir = movingball->Misc[BALL_MISC_OLDDIR];
+							movingball->Misc[BALL_MISC_OLDSTEP] = 0;
+							
+							movingball->Misc[BALL_MISC_OLDANGULAR] = 0;
+							movingball->Misc[BALL_MISC_OLDANGLE] = 0;
+							movingball->Misc[BALL_MISC_OLDDIR] = 0;
+							*/
+							movingball->Misc[BALL_MISC_CAUGHT] = 0;
+							caught = CATCH_ALLOW;
+						}
 					}
 					
 					ball.drawover(movingball);
+					
+					//Shoot lasers
+					paddle.shoot_laser(vaus);
+					
 					//clamp within bounds - MANDATORY because very fast Step speeds can cause the ball
 					//to *phase* through pseudo-solid objects, such as walls and the Vaus. 
 					ball.clamp_rightwall(movingball);
@@ -877,6 +1037,8 @@ global script arkanoid
 				capsule._run(vaus, movingball);
 				check_score_extralife();
 				if ( !(frame%30) ) capsule.cleanup();
+				
+				paddle.draw_midpoints(vaus);
 				
 				Waitdraw();
 				
@@ -1131,6 +1293,7 @@ ffc script ball
 		b->DrawYOffset = -32768; //I'm not sure why the script draw for this is mis-drawing relative to the angle of the ball.
 		Screen->DrawTile(6,b->X,b->Y,b->Tile,b->TileWidth,b->TileHeight,b->CSet,-1,-1,0,0,0,0,true,128);
 	}
+	
 	void launch(lweapon b)
 	{
 		if ( b->Misc[MISC_LAUNCHED] ) return;
@@ -1176,6 +1339,11 @@ ffc script ball
 	void move_with_vaus(lweapon b, ffc v)
 	{
 		b->X = v->X+18;
+	}
+	//caught
+	void move_relative_to_vaus(lweapon b, ffc v)
+	{
+		b->X = v->X + caught_relative_ball_vaus_x;
 	}
 	//ball.clamp*() are needed for when the step speed is so great that the ball skips past the equality checks.
 	void clamp_ceiling(lweapon b)
@@ -1377,6 +1545,7 @@ ffc script ball
 		if ( launched(b) )
 		{
 			
+			
 			if ( b->Angular )
 			{
 				if ( b->Angle == DIR_UUR ){ return; }
@@ -1386,159 +1555,195 @@ ffc script ball
 			}
 			else
 			{
+				
 				if ( b->Dir == DIR_RIGHTUP ) { return; }
 				if ( b->Dir == DIR_LEFTUP ) { return; }
 			}
-			//if ( Collision(b,v) ) //We'll refine this, later. 
 			
-			//else
-			//{
-				int hit_position; int vaus_midpoint =  v->X+(((v->TileWidth*16)/2)-1);
-				int midpoint_segment = v->X+(((v->TileWidth*16)/6));
-				int ball_midpoint = b->X+3;
-				
-				if ( b->Y+4 == v->Y )
-					//Now we need to check here, if the paddle is under the ball:
+			int hit_position; int vaus_midpoint =  v->X+(((v->TileWidth*16)/2)-1);
+			int midpoint_segment = v->X+(((v->TileWidth*16)/6));
+			int ball_midpoint;
+			if ( b->Angular )
+			{
+				switch(b->Angle)
 				{
-					if ( b->X >= v->X-3 ) //-3, because the ball is 4px wide, so we cover the last pixel of the ball against the furst pixel of the Vaus
+					case DIR_LLD: { ball_midpoint = b->X+2; break; }
+					case DIR_LDD: { ball_midpoint = b->X+2; break; }
+					case DIR_RRD: { ball_midpoint = b->X+3; break; }
+					case DIR_RDD: { ball_midpoint = b->X+3; break; }
+					default: { ball_midpoint = b->X+2; break; }
+				}
+			}
+			else
+			{
+				switch(b->Dir)
+				{
+					case DIR_DOWNLEFT: { ball_midpoint = b->X+2; break; }
+					case DIR_DOWNRIGHT: { ball_midpoint = b->X+3; break; }
+					default: { ball_midpoint = b->X+2; break; }
+				}
+			}
+			if ( b->Y+4 == v->Y )
+				//Now we need to check here, if the paddle is under the ball:
+			{
+				if ( b->X >= v->X-3 ) //-3, because the ball is 4px wide, so we cover the last pixel of the ball against the furst pixel of the Vaus
+				{
+					if ( b->X <= v->X+((v->TileWidth*16)+4) ) //no +3 here, because it's the actual X, so the first pixel of the ball is covered by the last pixel of the vaus.
 					{
-						if ( b->X <= v->X+((v->TileWidth*16)+4) ) //no +3 here, because it's the actual X, so the first pixel of the ball is covered by the last pixel of the vaus.
+						Game->PlaySound(SFX_BALL_HIT_VAUS);
+						//b->Y = v->Y-1;
+						
+						if ( ball_midpoint <= paddle.centre(v) ) //hit left side of vaus
 						{
-							Game->PlaySound(SFX_BALL_HIT_VAUS);
-							//b->Y = v->Y-1;
+							//more left than up, hit end of Vaus
+							if ( ball_midpoint <= paddle.get_segment(v,1)-2 ) //slight adjustment
+							//if ( Abs(ball_midpoint-vaus_midpoint) <= 2 )
+							{
+								//angular up
+								TraceNL(); TraceS("Setting ball dir to ANGULAR Left-left-Up");
+								
+								b->Angular = true;
+								b->Angle = DIR_LLU;
+								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_LUU);
+								try_catch(b,v);
+								return;
+							}
 							
-							if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
+							
+							//hit slice between end and centre, LU
+							else if ( ball_midpoint <= paddle.get_segment(v,2)+1 ) //slight adjustment
 							{
-								//more left than up, hit end of Vaus
-								if ( b->X <= (v->X-1) )
-								//if ( Abs(ball_midpoint-vaus_midpoint) <= 2 )
-								{
-									//angular up
-									TraceNL(); TraceS("Setting ball dir to ANGULAR Left-left-Up");
-									
-									b->Angular = true;
-									b->Angle = DIR_LLU;
-									TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_LUU);
-									return;
-								}
+								TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
+								//b->Y = v->Y-1;
+								b->Angular = false;
+								b->Dir = DIR_UPLEFT;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								try_catch(b,v);
+								return;
+							}
+							
+							//hit close to centre, LUU
+							else
+							{
+							
+								//angular up
+								TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Up-Up");
 								
-								//more up than left, hit close to centre
-								//else if ( (Abs(b->X+2)-vaus_midpoint) <= 3 )
-								//if ( Abs(ball_midpoint-vaus_midpoint) <= 2 )
-								if ( (Abs(vaus_midpoint - b->X+2)) <= 3 )
-								{
-									//angular up
-									TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Up-Up");
-									
-									b->Angular = true;
-									b->Angle = DIR_LUU;
-									b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-									TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_LUU);
-									return;
-								}
-								//hit between the zones, normal left-up
-								else
-								{
-								
-									//hit the centre midpoint
-									//set angular = false
-									//set DIR_UL
-									TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
-									//b->Y = v->Y-1;
-									b->Angular = false;
-									b->Dir = DIR_UPLEFT;
-									b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-									return;
-								}
+								b->Angular = true;
+								b->Angle = DIR_LUU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_LUU);
+								try_catch(b,v);
+								return;
 								
 							}
-							else if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
-							{
-								/*
-								if ( Abs(ball_midpoint-vaus_midpoint) <= 2 )
-								{
-									//angular up
-									TraceNL(); TraceS("Setting ball dir to ANGULAR RIGHT-Up-Up");
-									--b->Y;
-									b->Angular = true;
-									b->Angle = DIR_RUU;
-									TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
-						
-								}
-								if ( b->X >= (v->X+(v->TileWidth*16)-2) )
-								{
-									//angular, sideways
-									TraceNL(); TraceS("Setting ball dir to ANGULAR right-right-Up");
-									--b->Y;
-									b->Angular = true;
-									b->Angle = DIR_RRU;
-									TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RRU);
-						
-								}
-								*/
-								//more up then right, hit vaus close to centre
-								if ( (Abs(vaus_midpoint - b->X)) <= 3 )
-								{
-									//angular up
-									TraceNL(); TraceS("Setting ball dir to ANGULAR RIGHT-Up-Up");
-									
-									b->Angular = true;
-									b->Angle = DIR_RUU;
-									b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-									TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
-									return;
-								}
-								//more right than up, hit end of vaus
-								else if ( b->X > ( vaus_midpoint + ((v->TileWidth*16)/2)-4) )
-								//else if ( (Abs(vaus_midpoint - b->X)) >= v->X+((v->TileWidth*16)/2)-1 )
-								{
-									//angular up
-									TraceNL(); TraceS("Setting ball dir to ANGULAR RIGHT-right-Up");
-									
-									b->Angular = true;
-									b->Angle = DIR_RRU;
-									b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-									TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
-									return;
-								}
-								else
-								{
-									//hit the centre midpoint
-									//set angular = false
-									//set DIR_UR
-									TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
-									//b->Y = v->Y-6;
-									b->Angular = false;
-									b->Dir = DIR_UPRIGHT;
-									//b->Dir = DIR_UPRIGHT;
-									b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-									return;
-								}
-								
-							}
-								
-							else //catchall
-							{
-								switch(b->Dir)
-								{
-									case DIR_LEFTDOWN: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-									case DIR_RIGHTDOWN: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-									default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-								}
-							}
+							
 						}
-						else 
+						//hit right side of paddle
+						else// if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
 						{
-							dead(b,v);
+							/*
+							if ( Abs(ball_midpoint-vaus_midpoint) <= 2 )
+							{
+								//angular up
+								TraceNL(); TraceS("Setting ball dir to ANGULAR RIGHT-Up-Up");
+								--b->Y;
+								b->Angular = true;
+								b->Angle = DIR_RUU;
+								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
+					
+							}
+							if ( b->X >= (v->X+(v->TileWidth*16)-2) )
+							{
+								//angular, sideways
+								TraceNL(); TraceS("Setting ball dir to ANGULAR right-right-Up");
+								--b->Y;
+								b->Angular = true;
+								b->Angle = DIR_RRU;
+								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RRU);
+					
+							}
+							*/
+							//more up then right, hit vaus close to centre
+							if ( ball_midpoint < paddle.get_segment(v,4) )
+							{
+								//angular up
+								TraceNL(); TraceS("Setting ball dir to ANGULAR RIGHT-Up-Up");
+								
+								b->Angular = true;
+								b->Angle = DIR_RUU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
+								try_catch(b,v);
+								return;
+							}
+							//more right than up, hit end of vaus
+							else if ( ball_midpoint < paddle.get_segment(v,5) ) 
+							//else if ( (Abs(vaus_midpoint - b->X)) >= v->X+((v->TileWidth*16)/2)-1 )
+							{
+								
+								
+								//hit the centre midpoint
+								//set angular = false
+								//set DIR_UR
+								TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
+								//b->Y = v->Y-6;
+								b->Angular = false;
+								b->Dir = DIR_UPRIGHT;
+								//b->Dir = DIR_UPRIGHT;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								try_catch(b,v);
+								return;
+								
+							}
+							else
+							{
+								
+								//angular up
+								TraceNL(); TraceS("Setting ball dir to ANGULAR RIGHT-right-Up");
+								
+								b->Angular = true;
+								b->Angle = DIR_RRU;
+								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								try_catch(b,v);
+								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
+								return;
+							}
+							
 						}
+						
+						
+							
 					}
 					else 
 					{
 						dead(b,v);
 					}
 				}
-			//}
+				else 
+				{
+					dead(b,v);
+				}
+			}
 			
+		}
+	}
+	void try_catch(lweapon b, ffc v)
+	{
+		//catch mechanics
+		if ( caught == CATCH_ALLOW )
+		{
+			//TraceNL(); TraceS("Ball hit vaus with catch allow status.");
+			caught = CATCH_HOLDING_BALL;
+			b->Misc[BALL_MISC_CAUGHT] = 1;
+			b->Misc[BALL_MISC_OLDSTEP] = b->Step;
+			//TraceNL(); TraceS("b->Misc[BALL_MISC_OLDSTEP] is: "); Trace(b->Misc[BALL_MISC_OLDSTEP]);
+			//b->Misc[BALL_MISC_OLDANGULAR] = Cond(b->Angular,1,0);
+			//b->Misc[BALL_MISC_OLDANGLE] = b->Angle;
+			//b->Misc[BALL_MISC_OLDDIR] = b->Dir;
+			b->Step = 0;
+			//launched(b,false);
+			caught_relative_ball_vaus_x = Abs(b->X - v->X);
 		}
 	}
 	void dead(lweapon b, ffc v)
@@ -1762,12 +1967,12 @@ ffc script capsule
 		int captype = c->ID;
 		switch(get_type(c))
 		{
-			case CAPS_TYPE_EXTEND: { extend(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
-			case CAPS_TYPE_BREAK: { escape(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
-			case CAPS_TYPE_CATCH: { catchball(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_EXTEND: { extend(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_BREAK: { escape(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_CATCH: { catchball(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
 			case CAPS_TYPE_DIVIDE: { split(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
-			case CAPS_TYPE_LASER: { laser(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
-			case CAPS_TYPE_VAUS:{ extravaus(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_LASER: { laser(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_VAUS:{ extravaus(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
 			case CAPS_TYPE_SLOW:{ slow(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
 			default: break;
 		}
@@ -1787,12 +1992,12 @@ ffc script capsule
 		int captype = c->ID;
 		switch(captype)
 		{
-			case CAPS_TYPE_EXTEND: { extend(v); return true; }
-			case CAPS_TYPE_BREAK: { escape(v); return true; }
-			case CAPS_TYPE_CATCH: { catchball(v); return true; }
+			case CAPS_TYPE_EXTEND: { extend(v,b); return true; }
+			case CAPS_TYPE_BREAK: { escape(v,b); return true; }
+			case CAPS_TYPE_CATCH: { catchball(v,b); return true; }
 			case CAPS_TYPE_DIVIDE: { split(v,b); return true; }
-			case CAPS_TYPE_LASER: { laser(v); return true; }
-			case CAPS_TYPE_VAUS:{ extravaus(v); return true; }
+			case CAPS_TYPE_LASER: { laser(v,b); return true; }
+			case CAPS_TYPE_VAUS:{ extravaus(v,b); return true; }
 			case CAPS_TYPE_SLOW:{ slow(v,b); return true; }
 			default: break;
 		}
@@ -1801,7 +2006,7 @@ ffc script capsule
 			
 			
 	}
-	void laser(ffc v)
+	void laser(ffc v, lweapon b)
 	{
 		TraceNL(); TraceS("Capsule LASER struck vaus!!");
 		extended = false;
@@ -1812,9 +2017,14 @@ ffc script capsule
 		//change the vaus data to the laser
 		laser = true;
 		caught = CATCH_NONE;
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+			b->Step = b->Misc[BALL_MISC_OLDSTEP];
+		}
 		
 	}
-	void extend(ffc v)
+	void extend(ffc v, lweapon b)
 	{
 		TraceNL(); TraceS("Capsule EXTEND struck vaus!!");
 		Game->PlaySound(SFX_EXTEND);
@@ -1826,6 +2036,11 @@ ffc script capsule
 		v->Data = CMB_VAUS_EXTENDED;
 		v->TileWidth = 3;
 		caught = CATCH_NONE;
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+			b->Step = b->Misc[BALL_MISC_OLDSTEP];
+		}
 	}
 	void slow(ffc v, lweapon b)
 	{
@@ -1836,9 +2051,13 @@ ffc script capsule
 		v->Data = CMB_VAUS;
 		v->TileWidth = 2;
 		caught = CATCH_NONE;
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+		}
 		b->Step = BALL_INITIAL_STEP;
 	}
-	void escape(ffc v)
+	void escape(ffc v, lweapon b)
 	{
 		Game->PlaySound(SFX_ARK2_POWERUP);
 		TraceNL(); TraceS("Capsule BREAK struck vaus!!");
@@ -1848,10 +2067,14 @@ ffc script capsule
 		////Game->PlaySound(capsule)
 		laser = false;
 		caught = CATCH_NONE;
-		
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+			b->Step = b->Misc[BALL_MISC_OLDSTEP];
+		}
 		//create exit
 	}
-	void extravaus(ffc v)
+	void extravaus(ffc v, lweapon b)
 	{
 		TraceNL(); TraceS("Capsule VAUS struck vaus!!");
 		Game->PlaySound(SFX_EXTRA_VAUS);
@@ -1861,6 +2084,11 @@ ffc script capsule
 		v->Data = CMB_VAUS;
 		v->TileWidth = 2;
 		++Game->Counter[CR_LIVES];
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+			b->Step = b->Misc[BALL_MISC_OLDSTEP];
+		}
 	}
 	void split(ffc v, lweapon b)
 	{
@@ -1872,11 +2100,16 @@ ffc script capsule
 		////Game->PlaySound(capsule)
 		laser = false;
 		caught = CATCH_NONE;
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+			b->Step = b->Misc[BALL_MISC_OLDSTEP];
+		}
 		
 		//! fuck this is going to be hard to add
 		
 	}
-	void catchball(ffc v)
+	void catchball(ffc v, lweapon b)
 	{
 		Game->PlaySound(SFX_ARK2_POWERUP2);
 		TraceNL(); TraceS("Capsule CATCH struck vaus!!");
@@ -1897,7 +2130,7 @@ ffc script capsule
 		*/
 		
 	}
-	void alloff(ffc v)
+	void alloff(ffc v, lweapon b)
 	{
 		TraceNL(); TraceS("Clearing all power-up conditions.");
 		laser = false;
@@ -1905,6 +2138,11 @@ ffc script capsule
 		v->Data = CMB_VAUS;
 		v->TileWidth = 2;
 		caught = CATCH_NONE;
+		if ( b->Misc[BALL_MISC_CAUGHT] ) 
+		{
+			b->Misc[BALL_MISC_CAUGHT] = 0;
+			b->Step = b->Misc[BALL_MISC_OLDSTEP];
+		}
 	}
 	int choosetype()
 	{
@@ -1922,6 +2160,7 @@ ffc script capsule
 		//return ( typetable[Rand(0,99)] );
 		//return CAPS_TYPE_EXTEND; //Testing this with one type, first. 
 		return ( typetable[Rand(0,SizeOfArray(typetable)-1)] );
+		
 	}
 	void fall(item c)
 	{
@@ -3362,6 +3601,8 @@ global script init
 		quit = 0;
 		frame = -1;
 		cur_stage = 1;
+		laser_cooldown = 0;
+		caught_relative_ball_vaus_x = 0;
 		Game->Counter[CR_LIVES] = STARTING_LIVES;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -3375,6 +3616,8 @@ global script Init
 		quit = 0;
 		frame = -1;
 		cur_stage = 1;
+		laser_cooldown = 0;
+		caught_relative_ball_vaus_x= 0;
 		Game->Counter[CR_LIVES] = STARTING_LIVES;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -3387,6 +3630,8 @@ global script onContinue
 	{
 		quit = 0;
 		frame = -1;
+		laser_cooldown = 0;
+		caught_relative_ball_vaus_x = 0;
 		//cur_stage = 1;
 		//ffc vaus = Screen->LoadFFC(FFC_VAUS);
 		//paddle.setup(vaus);
@@ -3470,3 +3715,55 @@ ffc script TestGetPixel
 		}
 	}
 }
+
+
+/* Catch Mechanics
+	
+	
+	1. Each capsule must have lweapon b
+	2. Add ball->Misc[CAUGHT]
+	3. Add ball->Misc[OLDSTEP]
+
+
+	4. In ball.check_hitvaus 
+		if it hits the vaus, check: if ( catch == cancatch )
+		then
+			if !launched
+			b->Misc[CAUGHT] = 1
+			b->Misc[OLDSTEP] - b->Step
+			b->Step = 0
+			launched = false
+    
+	5. In movevaus, 
+		if !launched
+			if b->Misc[CAUGHT]
+			when launching
+        
+			b->Step = b->Misc[OLDSTEP]
+			b->Misc[CAUGHT] = 0
+			when launched = false,
+    
+        6. If a powerup --other than another catch-- hits the vaus, restore b->Step from Misc[OLDSTEP]
+		!! This is why powerups all need a param of lweapon b
+
+	7. Store the difference between v>X and b->X when catching, and save it in b->Misc[CAUGHT_dist], then
+		when !launched, instead of the normal position on the vaus, reposition the ball, using this value. 
+
+	/*
+
+
+
+	/*Capsule Rewrite
+
+
+	1. Use itemdata->attribs for caps type
+	2. Use itemdata->sprites for the sprite to use on an eweapon
+	3. If the item appears, spawn an eweapon in its place and remove the item
+	4. Apply the itemdata->id to ew->Misc[] and read it in place of the item id
+		4(a). 	eweapons wouldnt need to be manually moved:
+			Just set their dir = down and a step speed
+		4(b).	Blocks can use item dropsets for pills to drop
+	5. Set the default item drawyoffset to offscreen, so that eweapon spawns aren't visible
+		5(a).	Now we can rid ourselves of the script draws and the loops to move everything
+	6. Perform removal of eweapons every 10 frames with capsule.cleanup() called if !(frame%10)
+	*/
