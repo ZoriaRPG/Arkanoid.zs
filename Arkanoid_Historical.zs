@@ -1,8 +1,24 @@
 import "std.zh"
+//BALL NEEDS TO HAVE A 6PX BY 6PX HITBOX, AND THUS A HIT OFFSET OF -1,-1, so that ->HitBy[] returns when the ball hits a block, and
+//the ball is still not yet inside that object
+//Note: We also need to store the UID of each ball, as HitBy[] works from the UID, not the pointer. 
+
+//# QUEST ISSUE: Bricks Break playing the wrong sound, despite being set. Might be a 2.54 bug? -Z
+
+/* ZC issues: I forgot to expand ->Misc[] in sprite.cpp, which should be fixed int he source for Alpha 32. 
+	This meant that r/w to ptr->Misc[>15] would use invalid data, or overwrite other data. bad, bad, bad. 
+	
+	Continue script does not run when Init script runs. It NEEDS to do that! Otherwise, settings that affect things such as Link's tile
+	don't happen before the opening wipe. 
+	
+	HitBy[] Doesn't yet use UIDs. :/ I forgot that it uses the screen index. This is a case for adding HitBy[UID] to 2.54...
+	In fact, the only reason that using HitBy[UID] worked, was because my object 9the ball_ was *both* UID1 and LW1. :D
+	
+*/
 
 //Arkanoid script
-//v0.9
-//14th August, 2018
+//v0.11
+//15th August, 2018
 
 const int FFC_VAUS = 1;
 const int CMB_VAUS_EXTENDED = 1528;
@@ -10,11 +26,14 @@ const int CMB_VAUS = 1524;
 const int CMB_VAUS_DEAD = 1520;
 
 const int MID_STAGE_START = 4;
+const int NPCM_AWARDED_POINTS = 3; //brick->Misc[], flag to mark if points were awarded to the player. 
+const int NPC_ATTRIB_POINTS = 0; //brick->Attributes[], value for score. 
 
 int quit;
 int caught;
 int frame;
 bool newstage = true;
+bool revive_vaus = false; 
 
 int ball_x;
 int ball_y;
@@ -28,6 +47,8 @@ int paddle_y;
 int paddle_width = 16;
 int paddle_speed = 2;
 int extended;
+
+int ball_uid;
 
 //animation
 int death_frame;
@@ -178,79 +199,50 @@ ffc script paddle
 				}
 				
 			}
-				/*
-				if ( !(frame%FRAMES_PER_MOVEMENT) )
-				{
-					if (  Input->Button[CB_LEFT] )
-					{						
-						if ( !extended ) 
-						{
-							if ( p->X > (PADDLE_MIN_X_EXTENDED+frames_pressed[CB_LEFT]+1) ) p->X -= frames_pressed[CB_LEFT]+1;
-						}
-						else
-						{
-							if ( p->X > (PADDLE_MIN_X+frames_pressed[CB_LEFT]+1) ) p->X -= frames_pressed[CB_LEFT]+1;
-						}
-					}
-					if (  Input->Button[CB_RIGHT] ) 
-					{
-						if ( !extended ) 
-						{
-							if ( p->X < (PADDLE_MAX_X_EXTENDED-frames_pressed[CB_RIGHT]-1) ) p->X += frames_pressed[CB_RIGHT]+1;
-						}
-						else
-						{
-							if ( p->X < (PADDLE_MAX_X-frames_pressed[CB_RIGHT]-1) ) p->X += frames_pressed[CB_RIGHT]+1;
-						}
-					}
-				}
-				*/
 			
 			else //no accel offered, move a static number of pixels
 			{
-				//if ( !(frame%FRAMES_PER_MOVEMENT) )
-				//{
-					if ( !extended )
+				
+				if ( !extended )
+				{
+					if (  Input->Button[CB_LEFT] ) 
 					{
-						if (  Input->Button[CB_LEFT] ) 
+						for ( int q = 0; q < paddle_speed; ++q ) 
 						{
-							for ( int q = 0; q < paddle_speed; ++q ) 
-							{
-								if ( p->X > PADDLE_MIN_X )
-								{
-									--p->X;
-								}
-							}
-						}
-						if (  Input->Button[CB_RIGHT] ) 
-						{
-							for ( int q = 0; q < paddle_speed; ++q ) 
-							{
-								if ( p->X < PADDLE_MAX_X )
-								{
-									++p->X;
-								}
-							}
-						}
-					}
-					else
-					{
-						if (  Input->Button[CB_LEFT] ) 
-						{
-							if ( p->X > PADDLE_MIN_X_EXTENDED )
+							if ( p->X > PADDLE_MIN_X )
 							{
 								--p->X;
 							}
 						}
-						if (  Input->Button[CB_RIGHT] ) {
-							if ( p->X < PADDLE_MAX_X_EXTENDED )
+					}
+					if (  Input->Button[CB_RIGHT] ) 
+					{
+						for ( int q = 0; q < paddle_speed; ++q ) 
+						{
+							if ( p->X < PADDLE_MAX_X )
 							{
 								++p->X;
 							}
 						}
-						
 					}
-				//}
+				}
+				else
+				{
+					if (  Input->Button[CB_LEFT] ) 
+					{
+						if ( p->X > PADDLE_MIN_X_EXTENDED )
+						{
+							--p->X;
+						}
+					}
+					if (  Input->Button[CB_RIGHT] ) {
+						if ( p->X < PADDLE_MAX_X_EXTENDED )
+						{
+							++p->X;
+						}
+					}
+					
+				}
 			}
 		}
 		
@@ -339,9 +331,20 @@ global script arkanoid
 				ball.create(vaus);
 				movingball = vaus->Misc[MISC_BALLID];
 			}
+			if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
+			{
+				Game->PlayMIDI(MID_STAGE_START);
+				vaus->Misc[MISC_DEAD] = 0; 
+				revive_vaus = false;
+				paddle.setup(vaus);
+				ball.create(vaus);
+				movingball = vaus->Misc[MISC_BALLID];
+			}
 			
 			if ( !vaus->Misc[MISC_DEAD] )
 			{
+				if ( Input->Key[KEY_P] ) Trace(movingball->UID); //Frick, I'm an idiot. HIT_BY_LWEAPON is the SCREEN INDEX< not the UID!!
+					//2.54 Absolutely needs HitBy_UID!
 				change_setting(); //check for a setting change_setting
 				paddle.extend(vaus);
 				paddle.check_input();
@@ -357,17 +360,78 @@ global script arkanoid
 				ball.check_leftwall(movingball);
 				ball.check_rightwall(movingball);
 				ball.check_hitvaus(movingball, vaus);
+				/*
+				
+				I moved this to after Waitdraw, because I wanted the post-draw timing for ball bounce, and to ensure that
+				the movingball lweapon stayed alive. -Z (Alpha 0.10)
+				//Bounce ball on bricks. 
+				for ( int q = Screen->NumNPCs(); q > 0; --q )
+				{ 
+					npc b = Screen->LoadNPC(q);
+					if ( b->Type != NPCT_OTHERFLOAT ) continue;
+					TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
+					TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
+					brick.take_hit(b, movingball);
+				}
+				*/
+				movingball->DeadState = WDS_ALIVE; //Force it alive at all times if the vaus is alive. 
+					//We'll need another solition once we do the 3-way split ball. Bleah. 
+			}
+			
+			//It's probably unwise to run this block twice! Where do I want it, before or after Waitdraw() ? -Z
+			else
+			{
+				paddle.dead(vaus);
+				while ( (frame - 100) < death_frame ) 
+				{
+					//we should hide the vaus, and restart the stage here. 
+					++frame;
+					Waitdraw(); //Something is preventing the vaus from changing into the explosion style. S
+					Waitframe();
+				}
+				lweapon deadball = movingball; 
+				deadball->DeadState = WDS_DEAD; 
+				movingball = vaus->Misc[10];
+				revive_vaus = true; 
+				
+			}
+			
+			Waitdraw();
+			
+			
+			if ( !vaus->Misc[MISC_DEAD] )
+			{
+				movingball->DeadState = WDS_ALIVE;
+				
+				//Bounce ball on bricks. 
+				for ( int q = Screen->NumNPCs(); q > 0; --q )
+				{ 
+					npc b = Screen->LoadNPC(q);
+					if ( b->Type != NPCT_OTHERFLOAT ) continue;
+					//TraceNL(); TraceS("movingball->X = "); Trace(movingball->X);
+					//TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
+					movingball->DeadState = WDS_ALIVE;
+					brick.take_hit(b, movingball);
+				}
+				
 			}
 			else
 			{
 				paddle.dead(vaus);
-				if ( death_frame < frame - 36 ) 
+				while ( (frame - 100) < death_frame ) 
 				{
 					//we should hide the vaus, and restart the stage here. 
+					++frame;
+					Waitdraw();
+					Waitframe();
 				}
+				lweapon deadball = movingball; 
+				deadball->DeadState = WDS_DEAD; 
+				movingball = vaus->Misc[10]; //Because = NULL() requires alpha 32. :D
+				revive_vaus = true; 
+				
 			}
 			
-			Waitdraw();
 			Waitframe();
 		}
 	}
@@ -404,12 +468,16 @@ ffc script ball
 	void create(ffc vaus_id) //send the ball lweapon pointer back to the vaus
 	{
 		lweapon ball = Screen->CreateLWeapon(LW_SCRIPT1);
-		ball->HitWidth = 4;
-		ball->HitHeight = 4;
+		TraceNL(); TraceS("Creating ball with Script UID: "); Trace(ball->UID);
+		ball->HitWidth = 6; //Not 4, so that the ball bounces when its edges touch a brick. 
+		ball->HitHeight = 6; //Not 4, so that the ball bounces when its edges touch a brick. 
 		ball->UseSprite(SPR_BALL);
 		ball->X = vaus_id->X+18;
 		ball->Y = vaus_id->Y-2;
 		ball->Damage = 1;
+		ball_uid = ball->UID;
+		ball->HitXOffset = -1; //so that the ball bounces when its edges touch a brick. 
+		ball->HitYOffset = -1; //so that the ball bounces when its edges touch a brick. 
 		vaus_id->Misc[MISC_BALLID] = ball;
 	}
 	void launch(lweapon b)
@@ -492,11 +560,11 @@ ffc script ball
 			//if ( Collision(b,v) ) //We'll refine this, later. 
 			
 			if ( b->Y+4 == v->Y )
-				//we need to check here, if the paddle is under the ball
+				//Now we need to check here, if the paddle is under the ball:
 			{
-				if ( b->X >= v->X )
+				if ( b->X >= v->X-3 ) //-3, because the ball is 4px wide, so we cover the last pixel of the ball against the furst pixel of the Vaus
 				{
-					if ( b->X <= v->X+(v->TileWidth*16) )
+					if ( b->X <= v->X+(v->TileWidth*16) ) //no +3 here, because it's the actual X, so the first pixel of the ball is covered by the last pixel of the vaus.
 					{
 						Game->PlaySound(6);
 						b->Y = v->Y-1;
@@ -636,13 +704,21 @@ const int NPC_BRICK_SILVER3  	= 255; //not set up yet;
 const int NPC_BRICK_SILVER4 	= 255; //not set up yet
 const int NPC_BRICK_GOLD 	= 191;
 
+
+const int HIT_BY_LWEAPON = 2;
+
 ffc script brick
 {
 	void run()
 	{
 	}
-	bool hit (npc a, lewapon b)
+	bool hit(npc a, lweapon v)
 	{
+		Link->Misc[0] = v; //We'll use this as scratch untyped space for the moment. -Z
+		
+		int temp_UID = v->UID * 10000; //this is a bug in HITBY[]. The HitBy value being stored is being multiplied by 10000, and it should not be.
+			//as UID is not, and NEVER should be!!!
+		//TraceNL(); TraceS("v->UID is: "); Trace(v->UID);
 		/*
 		To determine where a brick was hit, we first scan each brick and look to see which was
 		hit at all, by our lweapon.
@@ -655,6 +731,128 @@ ffc script brick
 		
 		*/
 		//HitBy[]
+		
+		//if ( a->HitBy[HIT_BY_LWEAPON] ) 
+		//{ 
+		//	TraceNL(); TraceS("a->HitBy[HIT_BY_LWEAPON] id: "); Trace(a->HitBy[HIT_BY_LWEAPON]); 
+		//	TraceNL();
+		//	TraceS("Our Link->Misc scratch value is: "); Trace((Link->Misc[0]+1));
+		//}
+		
+		//! We'll use this method again when we add UIDs to HitBy[] ! -Z
+		//return ( a->HitBy[HIT_BY_LWEAPON] == temp_UID ); 
+		return ( a->HitBy[HIT_BY_LWEAPON] == (Link->Misc[0]+1) ); 
+	}
+	bool hit_below(npc a, lweapon v)
+	{
+		if ( v->Y == (a->Y + 8) ) return true; //we could do bounce here. 
+	}
+	bool hit_above(npc a, lweapon v)
+	{
+		if ( v->Y == (a->Y - 4) ) return true; //we could do bounce here. 
+	}
+	bool hit_left(npc a, lweapon v)
+	{
+		if ( v->X == (a->X - 4) ) return true; //we could do bounce here. 
+	}
+	bool hit_right(npc a, lweapon v)
+	{
+		if ( v->X == (a->X + 16 ) ) return true; //we could do bounce here. 
+	}
+	
+	void take_hit(npc a, lweapon v)
+	{
+		if ( hit(a,v) )
+		{
+			//TraceNL(); TraceS("Brick hit!"); 
+			v->DeadState = WDS_ALIVE; 
+			//TraceNL(); TraceS("brick->X = "); Trace(a->X);
+			//TraceNL(); TraceS("brick->Y = "); Trace(a->Y);
+			//TraceNL(); TraceS("ball->X = "); Trace(v->X);
+			//TraceNL(); TraceS("ball->Y = "); Trace(v->Y);
+			if ( hit_below(a,v) )
+			{
+				switch ( v->Dir ) 
+				{
+					case DIR_UPRIGHT: { v->Dir = DIR_DOWNRIGHT; break; }
+					case DIR_UPLEFT: { v->Dir = DIR_DOWNLEFT; break; }
+					default: { TraceS("hit_below() found an illegal ball direction"); break; }
+				}
+				if ( a->HP <= 0 ) 
+				{ 
+					//TraceS("Brick is dead. "); TraceNL();
+					//TraceS("a->Misc[NPCM_AWARDED_POINTS] is: "); Trace(a->Misc[NPCM_AWARDED_POINTS]); TraceNL();
+					if ( !a->Misc[NPCM_AWARDED_POINTS] )
+					{
+						//TraceS("Can award points!"); TraceNL();
+						a->Misc[18] = 1;
+						//TraceS("The points for this brick are: "); Trace(a->Attributes[NPC_ATTRIB_POINTS]); TraceNL();
+						Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+					}
+				}
+			}
+			
+			else if ( hit_above(a,v) )
+			{
+				switch ( v->Dir ) 
+				{
+					case DIR_DOWNLEFT: { v->Dir = DIR_UPLEFT; break; }
+					case DIR_DOWNRIGHT: { v->Dir = DIR_UPRIGHT; break; }
+					default: { TraceS("hit_above() found an illegal ball direction"); break; }
+				}
+				if ( a->HP <= 0 ) 
+				{ 
+					if ( !a->Misc[NPCM_AWARDED_POINTS] )
+					{
+						a->Misc[NPCM_AWARDED_POINTS] = 1;
+						Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+					}
+				}
+			}
+			
+			else if ( hit_left(a,v) )
+			{
+				switch ( v->Dir ) 
+				{
+					case DIR_UPRIGHT: { v->Dir = DIR_UPLEFT; break; }
+					case DIR_DOWNRIGHT: { v->Dir = DIR_DOWNLEFT; break; }
+					default: { TraceS("hit_left() found an illegal ball direction"); break; }
+				}
+				if ( a->HP <= 0 ) 
+				{ 
+					if ( !a->Misc[NPCM_AWARDED_POINTS] )
+					{
+						a->Misc[NPCM_AWARDED_POINTS] = 1;
+						Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+					}
+				}
+			}
+			else if ( hit_right(a,v) )
+			{
+				switch ( v->Dir ) 
+				{
+					case DIR_UPLEFT: { v->Dir = DIR_UPRIGHT; break; }
+					case DIR_DOWNLEFT: { v->Dir = DIR_DOWNRIGHT; break; }
+					default: { TraceS("hit_below() found an illegal ball direction"); break; }
+				}
+				if ( a->HP <= 0 ) 
+				{ 
+					if ( !a->Misc[NPCM_AWARDED_POINTS] )
+					{
+						a->Misc[NPCM_AWARDED_POINTS] = 1;
+						Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+					}
+				}
+			}
+			
+			else
+			{
+				TraceS("brick.hit() returned true, but couldn't determine a valid ball location!");
+				return;
+			}
+		}
+					
+			
 	}
 	//turns layer objects into npc bricks. 
 	void setup()
@@ -782,6 +980,16 @@ global script Init
 {
 	void run()
 	{
+		Link->CollDetection = false;
+		Link->DrawYOffset = -32768;
+	}
+}
+
+global script onContinue
+{
+	void run()
+	{
+		Link->Invisible = true; 
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
 	}
