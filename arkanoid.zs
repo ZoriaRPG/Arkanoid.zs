@@ -27,7 +27,7 @@ import "std.zh"
 
 /* ZC issues: 
 	Continue script does not run when Init script runs. It NEEDS to do that! Otherwise, settings that affect things such as Link's tile
-	don't happen before the opening wipe. 
+	don't happen before the opening wipe. --FIXED in ZC. 
 	
 */
 
@@ -89,8 +89,8 @@ ffc script version_alpha_0_33_1
 ///          :
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
-//! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
-//! I should be drawing red v-lines over the points where the ball zones are on the paddle. 
+//! Bug: 
+
 
 typedef const int config;
 const int ENABLE = 1;
