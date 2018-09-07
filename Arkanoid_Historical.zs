@@ -1,5 +1,19 @@
+//This was the script for Alpha 15.Over the course of various changes and attempted fixes, it became less and less stable.
+//I decided to revert and start fresh with some of these things.
+//The major bug is that the ball was ploughing through blocks and not having its direction set properly. 
+
 import "std.zh"
 
+//I think, that to avoid multiple block collisions per frame, we need a 1x1px hitbox for the ball, and we need to move
+//the x/y of the hitbox based ont he direction that the ball is moving.
+//for the normal 4 directions, it'd be in the corner of the sprite, one pixel away from the ball.
+//	thus, if dir-right-up, we'd put it at x-offset = 4, y offset = -1. 
+//for additional directions, it'd move to a specific pixel of the sprite based on the angle.
+//Every frame, we'd repositionreposition this one-pixel hitbox based on ball dir or angle. 
+
+
+
+const int ALLOW_16_ANGLES = 0;
 
 const float DIR16_DEG_UP 		= 270;
 const float DIR16_DEG_UPUPLEFT = 247.5;
@@ -73,24 +87,31 @@ const int BALL_DIR_RRU = 5;
 //May as well set up the Vaus explosion and add it with a SPARKLE LWeapon.
 
 //Arkanoid script
-//v0.13
-//16th August, 2018
+//v0.15
+//17th August, 2018
 
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
 const float DIR_LUU = 4.3197;
 const float DIR_LLU = 3.5343;
+const float DIR_ULL = 3.5343;
 const float DIR_LLD = 2.7489;
+const float DIR_DLL = 2.7489;
 const float DIR_DDL = 1.9635;
+const float DIR_LDD = 1.9635;
 const float DIR_DDR = 1.1781;
+const float DIR_RDD = 1.1781;
 const float DIR_RRD = 0.3927; 
+const float DIR_DRR = 0.3927; 
 const float DIR_RRU = 5.1051;
+const float DIR_URR = 5.1051;
 const float DIR_RUU = 5.1141;
+const float DIR_UUR = 5.1141;
 
 
 		
 
-const float ARKANOID_VERSION = 0.12;
+const float ARKANOID_VERSION = 0.15;
 
 int GAME[256];
 const int GAME_MISC_FLAGS = 0;
@@ -115,12 +136,13 @@ const int QUIT_TITLE = -1;
 const int QUIT_GAME_RUNNING = 0; //i.e., !quit
 const int QUIT_GAMEOVER = 1;
 
-const int MAX_BALL_SPEED = 300;
+const int MAX_BALL_SPEED = 600;
 
 int caught;
 int frame;
 bool newstage = true;
 bool revive_vaus = false; 
+bool must_repos_hitbox;
 
 int ball_x;
 int ball_y;
@@ -136,6 +158,9 @@ int paddle_speed = 2;
 int extended;
 
 int ball_uid;
+
+int ball_cooldown = -1;
+const int COOLDOWN_FRAMES = 0;
 
 //animation
 int death_frame;
@@ -483,6 +508,15 @@ global script arkanoid
 						ball.move_with_vaus(movingball, vaus);
 					}
 					
+					if ( must_repos_hitbox ) 
+					{
+						must_repos_hitbox = false;
+						ball.reposition_hitbox(movingball);
+					}
+					//if ( movingball->Step % 50 == 0 ) 
+					//{
+					//	TraceNL(); TraceS("Step is now: "); Trace(movingball->Step);
+					//}
 					
 					//clamp within bounds - MANDATORY because very fast Step speeds can cause the ball
 					//to *phase* through pseudo-solid objects, such as walls and the Vaus. 
@@ -497,7 +531,20 @@ global script arkanoid
 					ball.check_leftwall(movingball);
 					ball.check_rightwall(movingball);
 					ball.check_hitvaus(movingball, vaus);
-					//ball.set_speed(movingball);
+					
+					/*
+					if ( ball_cooldown > 0 )
+					{
+						movingball->CollDetection = false;
+						--ball_cooldown;
+					}
+					if ( ball_cooldown == 0 ) 
+					{
+						movingball->CollDetection = true;
+						ball_cooldown = -1;
+					}
+					*/
+					//ball.increase_speed(movingball);
 					/*
 					
 					I moved this to after Waitdraw, because I wanted the post-draw timing for ball bounce, and to ensure that
@@ -550,6 +597,8 @@ global script arkanoid
 				{
 					movingball->DeadState = WDS_ALIVE;
 					
+					//ball.reposition_hitbox(movingball);
+					
 					//Bounce ball on bricks. 
 					for ( int q = Screen->NumNPCs(); q > 0; --q )
 					{ 
@@ -559,7 +608,13 @@ global script arkanoid
 						//TraceNL(); TraceS("movingball->Y = "); Trace(movingball->Y);
 						movingball->DeadState = WDS_ALIVE;
 						//TraceNL(); TraceS("movingball ptr: "); Trace(movingball); 
-						brick.take_hit(b, movingball);
+						if ( brick.take_hit(b, movingball) ) 
+						{
+							continue; 
+							//break;
+						}
+						//ball.reposition_hitbox(movingball);
+						
 					}
 					
 				}
@@ -663,18 +718,72 @@ ffc script ball
 		b->Step = speed; // bound(bounces,0,MAX_BOUNCES);
 		//Trace(b->Step);
 	}
+	void increase_speed(lweapon b, int amt_base)
+{
+	int prevStep = b->Step;
+	int inc = amt_base;
+	while ( b->Step == prevStep )
+	{
+		b->Step += inc;
+		++inc;
+	}
+}
+	void reposition_hitbox(lweapon b)
+	{
+		if ( !b->Angular )
+		{
+			switch(b->Dir)
+			{
+				case DIR_RIGHTUP: 
+				{
+					//TraceNL(); TraceS("Ball Hitbox is now UR corner");
+					b->HitYOffset = -1; 
+					b->HitXOffset = 2;
+					break;
+				}
+				case DIR_LEFTUP:
+				{
+					//TraceNL(); TraceS("Ball Hitbox is now UL corner");
+					b->HitYOffset = -1; 
+					b->HitXOffset = 1;
+					break;
+				}
+				case DIR_LEFTDOWN:
+				{
+					//TraceNL(); TraceS("Ball Hitbox is now LL corner");
+					b->HitYOffset = 4; 
+					b->HitXOffset = 1;
+					break;
+				}
+				case DIR_RIGHTDOWN:
+				{
+					//TraceNL(); TraceS("Ball Hitbox is now LR corner");
+					b->HitYOffset = 4; 
+					b->HitXOffset = 2;
+					break;
+				}
+			}
+		}
+		else //angular
+		{
+			
+			
+		}
+	}
+			
+			
 	void create(ffc vaus_id) //send the ball lweapon pointer back to the vaus
 	{
 		lweapon ball = Screen->CreateLWeapon(LW_SCRIPT1);
 		TraceNL(); TraceS("Creating ball with Script UID: "); Trace(ball->UID);
-		ball->HitWidth = 6; //Not 4, so that the ball bounces when its edges touch a brick. 
-		ball->HitHeight = 6; //Not 4, so that the ball bounces when its edges touch a brick. 
+		ball->HitWidth = 1; //6; //Not 4, so that the ball bounces when its edges touch a brick. 
+		ball->HitHeight = 1; //6; //Not 4, so that the ball bounces when its edges touch a brick. 
 		ball->UseSprite(SPR_BALL);
 		ball->X = vaus_id->X+18;
 		ball->Y = vaus_id->Y-2;
 		ball->Damage = 1;
 		ball_uid = ball->UID;
-		ball->HitXOffset = -1; //so that the ball bounces when its edges touch a brick. 
+		ball->HitXOffset = 4; //so that the ball bounces when its edges touch a brick. 
 		ball->HitYOffset = -1; //so that the ball bounces when its edges touch a brick. 
 		vaus_id->Misc[MISC_BALLID] = ball;
 	}
@@ -750,12 +859,75 @@ ffc script ball
 		if ( b->Y == BALL_MIN_Y )			
 		{
 			Game->PlaySound(7);
-			switch(b->Dir)
+			if ( b->Angular && ALLOW_16_ANGLES ) 
 			{
-				case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-				case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-				default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				switch ( b->Misc[BALL_MISC_DIR] ) 
+				//switch ( b->Angle ) 
+				{
+					//flip up and down
+					//left
+					case DIR_LLU:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_LLD;
+						b->Misc[BALL_MISC_DIR] = DIR_LLD;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					case DIR_UUL:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_DDL;
+						b->Misc[BALL_MISC_DIR] = DIR_DDL;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					//right
+					case DIR_RRU:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_RRD;
+						b->Misc[BALL_MISC_DIR] = DIR_RRD;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					case DIR_RUU:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_DDR;
+						b->Misc[BALL_MISC_DIR] = DIR_DDR;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					default: { TraceNL(); TraceS("check_ceiling() could not determine the angle of an ANgular ball!"); break;}
+				}
 			}
+			else
+			{
+				switch(b->Dir)
+				{
+					case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; 
+						//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						b->Misc[BALL_MISC_DIR] = DIR_RIGHTDOWN; break; }
+					case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; 
+						//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						b->Misc[BALL_MISC_DIR] = DIR_LEFTDOWN; break; }
+					default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				}
+			}
+			reposition_hitbox(b);
 		}
 	}
 	void check_leftwall(lweapon b)
@@ -764,12 +936,76 @@ ffc script ball
 		if ( b->X == BALL_MIN_X ) 
 		{
 			Game->PlaySound(7);
-			switch(b->Dir)
+			if ( b->Angular && ALLOW_16_ANGLES ) 
 			{
-				case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-				case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-				default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				switch ( b->Misc[BALL_MISC_DIR] ) 
+				//switch ( b->Angle ) 
+				{
+					//flip left and right
+					//left 
+					case DIR_LLU:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_RRU;
+						b->Misc[BALL_MISC_DIR] = DIR_RRU;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					case DIR_UUL:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_UUR;
+						b->Misc[BALL_MISC_DIR] = DIR_UUR;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					//right
+					case DIR_LLD:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_RRD;
+						b->Misc[BALL_MISC_DIR] = DIR_RRD;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+						
+					}
+					case DIR_LDD:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_DDR;
+						b->Misc[BALL_MISC_DIR] = DIR_DDR;
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						break;
+					}
+					default: { TraceNL(); TraceS("check_leftwall() could not determine the angle of an ANgular ball!"); break;}
+				}
 			}
+			else
+			{
+				switch(b->Dir)
+				{
+					case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; 
+						//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						b->Misc[BALL_MISC_DIR] = DIR_RIGHTDOWN; break; }
+					case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; 
+						//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						b->Misc[BALL_MISC_DIR] = DIR_RIGHTUP; break; }
+					default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				}
+			}
+			reposition_hitbox(b);
 		}
 	}
 	void check_rightwall(lweapon b)
@@ -778,18 +1014,82 @@ ffc script ball
 		if ( b->X == BALL_MAX_X ) 
 		{
 			Game->PlaySound(7);
-			switch(b->Dir)
+			if ( b->Angular && ALLOW_16_ANGLES ) 
 			{
-				case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-				case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-				default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				switch ( b->Misc[BALL_MISC_DIR] ) 
+				//switch ( b->Angle ) 
+				{
+					//flip left and right
+					//left 
+					case DIR_RRU:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_LLU;
+						b->Misc[BALL_MISC_DIR] = DIR_LLU;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						break;
+					}
+					case DIR_UUR:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_UUL;
+						b->Misc[BALL_MISC_DIR] = DIR_UUL;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED);
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						break;
+					}
+					//right
+					case DIR_RRD:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_LLD;
+						b->Misc[BALL_MISC_DIR] = DIR_LLD;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						break;
+					}
+					case DIR_RDD:
+					{
+						//++v->X; //not sure if we'll need this bit. 
+						b->Angle = DIR_DDL;
+						b->Misc[BALL_MISC_DIR] = DIR_DDL;
+						//b->Step = bound(b->Step+2, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						break;
+					}
+					default: { TraceNL(); TraceS("check_rightwall() could not determine the angle of an ANgular ball!"); break;}
+				}
 			}
+			else
+			{
+				switch(b->Dir)
+				{
+					case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; 
+						//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						b->Misc[BALL_MISC_DIR] = DIR_LEFTDOWN; break; }
+					case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; 
+						//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						increase_speed(b,2);
+						//ball_cooldown = COOLDOWN_FRAMES;
+						b->Misc[BALL_MISC_DIR] = DIR_LEFTUP; break; }
+					default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+				}
+			}
+			reposition_hitbox(b);
 		}
 	}
 	void check_hitvaus(lweapon b, ffc v)
 	{
 		int hit_position; int vaus_midpoint =  v->X+(((v->TileWidth*16)/2)-1);
-		int ball_midpoint = b->X+2;
+		int midpoint_segment = v->X+(((v->TileWidth*16)/6));
+		int ball_midpoint = b->X+3;
 		if ( launched(b) )
 		{
 			if ( b->Dir == DIR_RIGHTUP ) return;
@@ -804,135 +1104,174 @@ ffc script ball
 					if ( b->X <= v->X+(v->TileWidth*16) ) //no +3 here, because it's the actual X, so the first pixel of the ball is covered by the last pixel of the vaus.
 					{
 						Game->PlaySound(6);
-						
-						if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
+
+						if ( ALLOW_16_ANGLES ) 
 						{
-							//divide midpoint into three sections
-							if ( ball_midpoint <= (vaus_midpoint/3) )
+							if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
 							{
-								//hit the leftmost third, use LLU
-								//set angular, then Angle == LLU
-								TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Left-Up");
-								--b->Y;
-								b->Angular = true;
-								b->Angle = DIR_LLU;
-								b->Misc[BALL_MISC_DIR] = BALL_DIR_LLU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
+								TraceNL(); TraceS("Hit vaus left of midpoint.");
+								//divide midpoint into three sections
+								if ( ball_midpoint <= (v->X+2) )
+								//if ( ball_midpoint <= (v->X+midpoint_segment) )
+								{
+									//hit the leftmost third, use LLU
+									//set angular, then Angle == LLU
+									TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Left-Up");
+									--b->Y;
+									b->Angular = true;
+									b->Angle = DIR_LLU;
+									b->Misc[BALL_MISC_DIR] = DIR_LLU;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+									
+								}
+								else if ( ball_midpoint <= (v->X +13) )
+								//else if ( ball_midpoint <= (v->X + (midpoint_segment*2)) )
+								{
+									//hit the centre midpoint
+									//set angular = false
+									//set DIR_UL
+									TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
+									--b->Y;
+									b->Angular = false;
+									b->Dir = DIR_UPLEFT;
+									b->Misc[BALL_MISC_DIR] = DIR_LEFTUP;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+								}
+								else //hit close to centre
+								{
+									//set angular true
+									//set dir to UUL
+									TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Up-Up");
+									--b->Y;
+									b->Angular = true;
+									b->Angle = DIR_LUU;
+									b->Misc[BALL_MISC_DIR] = DIR_LUU;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+								}
+							}
+							else //if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
+							{
+								TraceNL(); TraceS("Hit vaus left of midpoint.");
+								//divide midpoint into three sections
+								if ( ball_midpoint <= (vaus_midpoint+2) )
+								//if ( ball_midpoint <= (vaus_midpoint+(midpoint_segment)) )
+								{
+									//hit close to centre
+									//set angular true
+									//set dir to UUR
+									TraceNL(); TraceS("Setting ball dir to ANGULAR Right-Up-Up");
+									--b->Y;
+									b->Angular = true;
+									b->Angle = DIR_RUU;
+									b->Misc[BALL_MISC_DIR] = DIR_RUU;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+									
+								}
+								else if ( ball_midpoint <= (vaus_midpoint+13) )
+								//else if ( ball_midpoint <= (vaus_midpoint+(midpoint_segment*2)) )
+								{
+									//hit the centre midpoint
+									//set angular = false
+									//set DIR_UR
+									TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
+									--b->Y;
+									b->Angular = false;
+									b->Dir = DIR_UPRIGHT;
+									b->Misc[BALL_MISC_DIR] = DIR_UPRIGHT;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+								}
+								else //hit close to rightmost edge
+								{
+									//set angular true
+									//set dir to URR
+									TraceNL(); TraceS("Setting ball dir to ANGULAR Right-Right--Up");
+									--b->Y;
+									b->Angular = true;
+									b->Angle = DIR_RRU;
+									b->Misc[BALL_MISC_DIR] = DIR_RRU;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+								}
 								
 							}
-							else if ( ball_midpoint <= (vaus_midpoint/2) )
-							{
-								//hit the centre midpoint
-								//set angular = false
-								//set DIR_UL
-								TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
-								--b->Y;
-								b->Angular = false;
-								b->Dir = DIR_UPLEFT;
-								b->Misc[BALL_MISC_DIR] = BALL_DIR_LU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-							}
-							else //hit close to centre
-							{
-								//set angular true
-								//set dir to UUL
-								TraceNL(); TraceS("Setting ball dir to ANGULAR Left-Up-Up");
-								--b->Y;
-								b->Angular = true;
-								b->Angle = DIR_LUU;
-								b->Misc[BALL_MISC_DIR] = BALL_DIR_UUL;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-							}
 						}
-						else if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
-						{
-							//divide midpoint into three sections
-							if ( ball_midpoint >= (vaus_midpoint+(vaus_midpoint/3)) )
-							{
-								//hit close to centre
-								//set angular true
-								//set dir to UUR
-								TraceNL(); TraceS("Setting ball dir to ANGULAR Right-Up-Up");
-								--b->Y;
-								b->Angular = true;
-								b->Angle = DIR_RUU;
-								b->Misc[BALL_MISC_DIR] = BALL_DIR_UUR;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-								
-							}
-							else if ( ball_midpoint >= (vaus_midpoint+(vaus_midpoint/2)) )
-							{
-								//hit the centre midpoint
-								//set angular = false
-								//set DIR_UR
-								TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
-								--b->Y;
-								b->Angular = false;
-								b->Dir = DIR_UPRIGHT;
-								b->Misc[BALL_MISC_DIR] = BALL_DIR_RU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-							}
-							else //hit close to rightmost edge
-							{
-								//set angular true
-								//set dir to URR
-								TraceNL(); TraceS("Setting ball dir to ANGULAR Right-Right--Up");
-								--b->Y;
-								b->Angular = true;
-								b->Angle = DIR_RRU;
-								b->Misc[BALL_MISC_DIR] = BALL_DIR_RRU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-							}
-							
-						}
-						/*
-						if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
-						{
-							
-								//hit the centre midpoint
-								//set angular = false
-								//set DIR_UL
-								TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
-								b->Y = v->Y-1;
-								b->Angular = false;
-								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-							
-						}
-						else if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
-						{
-							
-								//hit the centre midpoint
-								//set angular = false
-								//set DIR_UR
-								TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
-								b->Y = v->Y-6;
-								b->Angular = true;
-								b->Angle = DIR16_RADS_RIGHTRIGHTUP;
-								//b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
-								return;
-							
-							
-						}
-						*/
 						else
 						{
-							//failsafe
-							switch(b->Dir)
+							if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
 							{
-								case DIR_LEFTDOWN: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-								case DIR_RIGHTDOWN: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-								default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								
+									//hit the centre midpoint
+									//set angular = false
+									//set DIR_UL
+									TraceNL(); TraceS("Setting ball dir to DIGITAL Left-Up");
+									b->Y = v->Y-1;
+									b->Angular = false;
+									b->Dir = DIR_UPLEFT;
+									b->Misc[BALL_MISC_DIR] = DIR_UPLEFT;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+								
+							}
+							else if ( ball_midpoint > vaus_midpoint ) //hit right side of vaus
+							{
+								
+									//hit the centre midpoint
+									//set angular = false
+									//set DIR_UR
+									TraceNL(); TraceS("Setting ball dir to DIGITAL Right-Up");
+									b->Y = v->Y-6;
+									b->Angular = false;
+									b->Dir = DIR_UPRIGHT;
+									b->Misc[BALL_MISC_DIR] = DIR_UPRIGHT;
+									//b->Dir = DIR_UPRIGHT;
+									//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+									increase_speed(b,2);
+									//ball_cooldown = COOLDOWN_FRAMES;
+									return;
+								
+								
+							}
+						
+							else
+							{
+								//failsafe
+								switch(b->Dir)
+								{
+									case DIR_LEFTDOWN: { b->Dir = DIR_LEFTUP; 
+										//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+										increase_speed(b,2);
+										//ball_cooldown = COOLDOWN_FRAMES;
+										b->Misc[BALL_MISC_DIR] = DIR_LEFTDOWN; break; }
+									case DIR_RIGHTDOWN: { b->Dir = DIR_RIGHTUP; 
+										//b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+										increase_speed(b,2);
+										//ball_cooldown = COOLDOWN_FRAMES;
+										b->Misc[BALL_MISC_DIR] = DIR_RIGHTDOWN; break; }
+									default: { b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								}
 							}
 						}
+						
+						reposition_hitbox(b);
 						
 						
 						
@@ -1145,7 +1484,7 @@ ffc script brick
 		if ( v->X == (a->X + 16 ) ) return true; //we could do bounce here. 
 	}
 	
-	void take_hit(npc a, lweapon v)
+	bool take_hit(npc a, lweapon v)
 	{
 		if ( hit(a,v) )
 		{
@@ -1157,12 +1496,75 @@ ffc script brick
 			//TraceNL(); TraceS("ball->Y = "); Trace(v->Y);
 			if ( hit_below(a,v) )
 			{
-				switch ( v->Dir ) 
+				if ( v->Angular ) 
 				{
-					case DIR_UPRIGHT: { v->Dir = DIR_DOWNRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					case DIR_UPLEFT: { v->Dir = DIR_DOWNLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					default: { TraceS("hit_below() found an illegal ball direction"); break; }
+					switch ( v->Misc[BALL_MISC_DIR] ) 
+					//switch ( v->Angle ) 
+					{
+						//left
+						case DIR_LLU:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_LLD;
+							v->Misc[BALL_MISC_DIR] = DIR_LLD;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_UUL:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_DDL;
+							v->Misc[BALL_MISC_DIR] = DIR_DDL;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						//right
+						case DIR_RRU:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_RRD;
+							v->Misc[BALL_MISC_DIR] = DIR_RRD;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_RUU:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_DDR;
+							v->Misc[BALL_MISC_DIR] = DIR_DDR;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						default: { TraceNL(); TraceS("hit_below() could not determine the angle of an ANgular ball!"); break;}
+					}
 				}
+					
+				else
+				{
+					switch(v->Dir)
+					{
+						case DIR_UPRIGHT: { v->Dir = DIR_DOWNRIGHT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_UPRIGHT; break; }
+						case DIR_UPLEFT: { v->Dir = DIR_DOWNLEFT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_UPLEFT; break; }
+						default: { TraceS("hit_below() found an illegal ball direction"); break; }
+					}
+				}
+				
 				if ( a->HP <= 0 ) 
 				{ 
 					//TraceS("Brick is dead. "); TraceNL();
@@ -1179,11 +1581,72 @@ ffc script brick
 			
 			else if ( hit_above(a,v) )
 			{
-				switch ( v->Dir ) 
+				if ( v->Angular ) 
 				{
-					case DIR_DOWNLEFT: { v->Dir = DIR_UPLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					case DIR_DOWNRIGHT: { v->Dir = DIR_UPRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					default: { TraceS("hit_above() found an illegal ball direction"); break; }
+					switch ( v->Misc[BALL_MISC_DIR] ) 
+					//switch ( v->Angle ) 
+					{
+						//left
+						case DIR_LLD:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_LLU;
+							v->Misc[BALL_MISC_DIR] = DIR_LLU;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED);
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_DDL:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_UUL;
+							v->Misc[BALL_MISC_DIR] = DIR_UUL;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						//right
+						case DIR_RRD:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_RRU;
+							v->Misc[BALL_MISC_DIR] = DIR_RRU;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED);
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_RDD:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_UUR;
+							v->Misc[BALL_MISC_DIR] = DIR_UUR;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						default: { TraceNL(); TraceS("hit_above() could not determine the angle of an ANgular ball!"); break;}
+					}
+				}
+				else
+				{
+					switch ( v->Dir ) 
+					{
+						case DIR_DOWNLEFT: { v->Dir = DIR_UPLEFT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_DOWNLEFT; break; }
+						case DIR_DOWNRIGHT: { v->Dir = DIR_UPRIGHT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_DOWNRIGHT; break; }
+						default: { TraceS("hit_above() found an illegal ball direction"); break; }
+					}
 				}
 				if ( a->HP <= 0 ) 
 				{ 
@@ -1197,11 +1660,73 @@ ffc script brick
 			
 			else if ( hit_left(a,v) )
 			{
-				switch ( v->Dir ) 
+				if ( v->Angular ) 
 				{
-					case DIR_UPRIGHT: { v->Dir = DIR_UPLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					case DIR_DOWNRIGHT: { v->Dir = DIR_DOWNLEFT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED);  break; }
-					default: { TraceS("hit_left() found an illegal ball direction"); break; }
+					//switch ( v->Angle ) 
+					switch ( v->Misc[BALL_MISC_DIR] ) 
+					{
+						//flip left-right
+						//left
+						case DIR_RRD:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_LLD;
+							v->Misc[BALL_MISC_DIR] = DIR_LLD;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_DDR:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_DDL;
+							v->Misc[BALL_MISC_DIR] = DIR_DDL;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						//right
+						case DIR_RRU:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_LLU;
+							v->Misc[BALL_MISC_DIR] = DIR_LLU;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_UUR:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_UUL;
+							v->Misc[BALL_MISC_DIR] = DIR_UUL;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED);
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						default: { TraceNL(); TraceS("hit_above() could not determine the angle of an ANgular ball!"); break;}
+					}
+				}
+				else
+				{
+					switch ( v->Dir ) 
+					{
+						case DIR_UPRIGHT: { v->Dir = DIR_UPLEFT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_UPRIGHT; break; }
+						case DIR_DOWNRIGHT: { v->Dir = DIR_DOWNLEFT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_DOWNRIGHT; break; }
+						default: { TraceS("hit_left() found an illegal ball direction"); break; }
+					}
 				}
 				if ( a->HP <= 0 ) 
 				{ 
@@ -1214,11 +1739,73 @@ ffc script brick
 			}
 			else if ( hit_right(a,v) )
 			{
-				switch ( v->Dir ) 
+				if ( v->Angular ) 
 				{
-					case DIR_UPLEFT: { v->Dir = DIR_UPRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					case DIR_DOWNLEFT: { v->Dir = DIR_DOWNRIGHT; v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); break; }
-					default: { TraceS("hit_below() found an illegal ball direction"); break; }
+					switch ( v->Misc[BALL_MISC_DIR] ) 
+					//switch ( v->Angle ) 
+					{
+						//flip left-right
+						//left
+						case DIR_LLD:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_RRD;
+							v->Misc[BALL_MISC_DIR] = DIR_RRD;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_DDL:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_DDR;
+							v->Misc[BALL_MISC_DIR] = DIR_DDR;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						//right
+						case DIR_LLU:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_RRU;
+							v->Misc[BALL_MISC_DIR] = DIR_RRU;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						case DIR_UUL:
+						{
+							//++v->X; //not sure if we'll need this bit. 
+							v->Angle = DIR_UUR;
+							v->Misc[BALL_MISC_DIR] = DIR_UUR;
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							break;
+						}
+						default: { TraceNL(); TraceS("hit_above() could not determine the angle of an ANgular ball!"); break;}
+					}
+				}
+				else
+				{
+					switch ( v->Dir ) 
+					{
+						case DIR_UPLEFT: { v->Dir = DIR_UPRIGHT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_UPLEFT; break; }
+						case DIR_DOWNLEFT: { v->Dir = DIR_DOWNRIGHT; 
+							//v->Step = bound(v->Step+2, 0, MAX_BALL_SPEED); 
+							ball.increase_speed(v,2);
+							ball_cooldown = COOLDOWN_FRAMES;
+							v->Misc[BALL_MISC_DIR] = DIR_DOWNLEFT; break; }
+						default: { TraceS("hit_below() found an illegal ball direction"); break; }
+					}
 				}
 				if ( a->HP <= 0 ) 
 				{ 
@@ -1233,9 +1820,13 @@ ffc script brick
 			else
 			{
 				TraceS("brick.hit() returned true, but couldn't determine a valid ball location!");
-				return;
+				return false;
 			}
+			//must_repos_hitbox = true;
+			ball.reposition_hitbox(v);
+			return true;
 		}
+		return false;
 					
 			
 	}
@@ -1358,6 +1949,7 @@ global script init
 	{
 		quit = 0;
 		frame = -1;
+		ball_cooldown = -1;
 		Game->Counter[CR_LIVES] = 5;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -1370,6 +1962,7 @@ global script Init
 	{
 		quit = 0;
 		frame = -1;
+		ball_cooldown = -1;
 		Game->Counter[CR_LIVES] = 5;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -1382,6 +1975,7 @@ global script onContinue
 	{
 		quit = 0;
 		frame = -1;
+		ball_cooldown = -1;
 		Game->Counter[CR_LIVES] = 5;
 		Link->Invisible = true; 
 		Link->CollDetection = false;
