@@ -15,7 +15,7 @@ or by only checking for equality on the walls.
 */
 
 //Arkanoid script
-//v0.23
+//v0.25
 //26th August, 2018
 
 //////////////////////
@@ -35,7 +35,7 @@ or by only checking for equality on the walls.
 	
 */
 
-ffc script version_alpha_0_23
+ffc script version_alpha_0_25
 {
 	void run(){}
 }
@@ -59,6 +59,32 @@ ffc script version_alpha_0_23
 
 ///Alpha 0.22: Fixed code for level advancement. Added second stage.
 ///Alpha 0.23: Fixed brick.all_gone() counting gold bricks. 
+///Alpha 0.24: Fixed a bug in ball.check_rightwall() where a right-up moving ball was set to a right-ward angle/dir on contact.
+///	     : This was the cause of the ball falling like a stone. 
+///	     : Fixed a bug where angles that we were comparing against in ball.check_hitvaus() had the wrong equality constants,
+///	     : and thus, were returning false.  
+///	     : Added hold_Link_y() to the additional while loops so that the player can't escape that screen by holding directions
+///	     : on the single frame where that loop runs. 
+///Alpha 0.25: Added capsule class, and set up base functions, to generate capsules and make them fall.
+///	     : Capsules now appear int he game, but as of this time, they do not activate any power-ups. 
+///
+/// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
+
+//! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
+//! I should be drawing red v-lines over the points where the ball zones are on the paddle. 
+
+typedef const int config;
+
+
+config BRICK_CHANCE_CAPSULE 	= 50;
+config FAST_MOUSE_MAX	 	= 6;
+config MAX_STAGES 		= 2; //Number of stages/levels in the game.
+config MAX_BALL_SPEED 		= 300;
+config MIN_ZC_ALPHA_BUILD 	= 35; //Alphas are negatives, so we neex to check maximum, not minimum.
+config STARTING_LIVES 		= 5; 
+config CAPSULE_FALL_SPEED 	= 1;
+
+const float ARKANOID_VERSION = 0.25;
 
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
@@ -80,13 +106,10 @@ const float DIR_UUR = 5.1141;
 
 int last_mouse_x;
 int fast_mouse;
-const int FAST_MOUSE_MAX = 6;
-
-const int MIN_ZC_ALPHA_BUILD = 35; //Alphas are negatives, so we neex to check maximum, not minimum.
 
 
-const float ARKANOID_VERSION = 0.23;
-const int MAX_STAGES = 2; //Number of stages/levels in the game.
+
+
 
 int GAME[256];
 const int GAME_MISC_FLAGS = 0;
@@ -111,7 +134,7 @@ const int QUIT_TITLE = -1;
 const int QUIT_GAME_RUNNING = 0; //i.e., !quit
 const int QUIT_GAMEOVER = 1;
 
-const int MAX_BALL_SPEED = 300;
+
 
 int caught;
 int frame;
@@ -550,7 +573,7 @@ global script arkanoid
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
 				while ( newstage ) 
 				{
-					
+					hold_Link_y();
 					vaus = Screen->LoadFFC(FFC_VAUS);
 					//vaus_guard = Screen->CreateNPC(NPC_VAUSGUARD);
 					Game->PlayMIDI(MID_STAGE_START);
@@ -571,7 +594,7 @@ global script arkanoid
 				}
 				while ( leveldone )
 				{
-					
+					hold_Link_y();
 					//play stage end music
 					//Warp to new screen here.
 					if ( cur_stage < MAX_STAGES ) 
@@ -728,6 +751,8 @@ global script arkanoid
 					
 				}
 				
+				//Capsule mechanics
+				capsule.all_fall();
 				
 				Waitdraw();
 				
@@ -1150,14 +1175,14 @@ ffc script ball
 					case DIR_RRU:
 					{
 						b->Angular = false;
-						b->Dir = DIR_RIGHTUP;
+						b->Dir = DIR_LEFTUP;
 						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
 						break;
 					}
 					case DIR_RUU:
 					{
 						b->Angular = false;
-						b->Dir = DIR_RIGHTUP;
+						b->Dir = DIR_LEFTUP;
 						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
 						break;
 					}
@@ -1467,10 +1492,77 @@ const int NPC_BRICK_GOLD 	= 191;
 const int HIT_BY_LWEAPON = 2;
 const int HIT_BY_LWEAPON_UID = 6; 
 
+
+
+const int CAPS_TYPE_EXTEND = 126;
+const int CAPS_TYPE_BREAK = 129;
+const int CAPS_TYPE_CATCH = 125;
+const int CAPS_TYPE_DIVIDE = 128;
+const int CAPS_TYPE_LASER = 127;
+const int CAPS_TYPE_VAUS = 123;
+const int CAPS_TYPE_SLOW = 124;
+
+ffc script capsule
+{
+	void run(){}
+	void create(int x, int y)
+	{
+		int type = choosetype();
+		if ( type > 0 ) 
+		{
+			item capsule = Screen->CreateItem(type);
+			capsule->X = x;
+			capsule->Y = y;
+		}
+	}
+	int choosetype()
+	{
+		int typetable[] =
+		{
+			CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND,
+			CAPS_TYPE_CATCH, CAPS_TYPE_CATCH, CAPS_TYPE_CATCH, 
+			CAPS_TYPE_DIVIDE, CAPS_TYPE_DIVIDE, CAPS_TYPE_DIVIDE, 
+			CAPS_TYPE_LASER, CAPS_TYPE_LASER, CAPS_TYPE_LASER, 
+			CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, 
+			CAPS_TYPE_VAUS, CAPS_TYPE_BREAK
+			
+			
+		}; //each index is equal to a 1% chance
+		//return ( typetable[Rand(0,99)] );
+		//return CAPS_TYPE_EXTEND; //Testing this with one type, first. 
+		return ( typetable[Rand(0,SizeOfArray(typetable)-1)] );
+	}
+	void fall(item c)
+	{
+		for ( int q = 0; q < CAPSULE_FALL_SPEED; ++q )
+		{
+			++c->Y;
+		}
+	}
+	void all_fall()
+	{
+		for ( int q = Screen->NumItems(); q > 0; --q )
+		{
+			item c = Screen->LoadItem(q);
+			fall(c);
+			if ( c->Y > 256 ) Remove(c);
+		}
+	}
+}
+
+
+
 ffc script brick
 {
 	void run()
 	{
+	}
+	bool drop_capsule(npc a)
+	{
+		if ( Rand(1,100) <= BRICK_CHANCE_CAPSULE )
+		{
+			capsule.create(a->X, a->Y);
+		}
 	}
 	bool all_gone()
 	{
@@ -1850,6 +1942,7 @@ ffc script brick
 						a->Misc[18] = 1;
 						//TraceS("The points for this brick are: "); Trace(a->Attributes[NPC_ATTRIB_POINTS]); TraceNL();
 						Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+						drop_capsule(a); 
 					}
 				}
 			}
@@ -2125,6 +2218,7 @@ ffc script brick
 						{
 							a->Misc[NPCM_AWARDED_POINTS] = 1;
 							Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+							drop_capsule(a);
 						}
 					}
 				}
@@ -2408,6 +2502,7 @@ ffc script brick
 					{
 						a->Misc[NPCM_AWARDED_POINTS] = 1;
 						Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+						drop_capsule(a);
 					}
 				}
 			}
@@ -2686,6 +2781,7 @@ ffc script brick
 						{
 							a->Misc[NPCM_AWARDED_POINTS] = 1;
 							Game->Counter[CR_SCRIPT1] += a->Attributes[NPC_ATTRIB_POINTS];
+							drop_capsule(a);
 						}
 					}
 				}
@@ -2820,7 +2916,7 @@ global script init
 		quit = 0;
 		frame = -1;
 		cur_stage = 1;
-		Game->Counter[CR_LIVES] = 5;
+		Game->Counter[CR_LIVES] = STARTING_LIVES;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
 	}
@@ -2833,7 +2929,7 @@ global script Init
 		quit = 0;
 		frame = -1;
 		cur_stage = 1;
-		Game->Counter[CR_LIVES] = 5;
+		Game->Counter[CR_LIVES] = STARTING_LIVES;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
 	}
@@ -2846,7 +2942,7 @@ global script onContinue
 		quit = 0;
 		frame = -1;
 		//cur_stage = 1;
-		Game->Counter[CR_LIVES] = 5;
+		Game->Counter[CR_LIVES] = STARTING_LIVES;
 		Link->Invisible = true; 
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
