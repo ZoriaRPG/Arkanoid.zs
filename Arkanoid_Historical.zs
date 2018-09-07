@@ -6,7 +6,7 @@ import "std.zh"
 // Implement enemies. 
 
 //Arkanoid script
-//v0.19
+//v0.20
 //22nd August, 2018
 
 //////////////////////
@@ -26,6 +26,11 @@ import "std.zh"
 	
 */
 
+ffc script version_alpha_0_20
+{
+	void run(){}
+}
+
 /// Changes, Revision History
 ///
 ///
@@ -33,9 +38,13 @@ import "std.zh"
 ///		Then, re-implemented ONLY the Vaus midpoint physics.
 ///		Fixed the hack for UID in brick.take_hit(). This means that ZC 2.54 Alpha **32** is now the minimum ZC version.
 
-//Alpha 18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
-// 	The mouse mode must be enabled for this to function!
-//	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
+///Alpha 0.18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
+/// 	The mouse mode must be enabled for this to function!
+///	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
+
+///Alpha 0.19: Added a frame check to keyboard keys V and B.
+
+///Alpha 0.20: Added an ffc script that reports the version when assigning slots after compiling. 
 
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
@@ -59,10 +68,10 @@ int last_mouse_x;
 int fast_mouse;
 const int FAST_MOUSE_MAX = 6;
 
-const int MIN_ZC_ALPHA_BUILD = 33; //Alphas are negatives, so we neex to check maximum, not minimum.
+const int MIN_ZC_ALPHA_BUILD = 35; //Alphas are negatives, so we neex to check maximum, not minimum.
 
 
-const float ARKANOID_VERSION = 0.16;
+const float ARKANOID_VERSION = 0.20;
 
 int GAME[256];
 const int GAME_MISC_FLAGS = 0;
