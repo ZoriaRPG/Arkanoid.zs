@@ -31,7 +31,7 @@ import "std.zh"
 	
 */
 
-ffc script version_alpha_0_33
+ffc script version_alpha_0_33_1
 {
 	void run(){}
 }
@@ -796,8 +796,8 @@ global script arkanoid
 			while(!quit)
 			{
 				++frame;
-				if ( Link->PressEx1 ) Game->GreyscaleOn();
-				if ( Link->PressEx2 ) Game->GreyscaleOff();
+				if ( Link->PressEx1 ) Graphics->Greyscale(true);
+				if ( Link->PressEx2 ) Graphics->Greyscale(false);
 				if ( Input->Key[KEY_L] ) ++Game->Counter[CR_LIVES]; 
 				hold_Link_y(); //Don't allow Link to leave the screen, bt
 					//keep his X and Y matched to the Vaus!
