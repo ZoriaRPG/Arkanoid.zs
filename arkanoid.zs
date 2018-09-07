@@ -5,9 +5,18 @@ import "std.zh"
 // Implement new angles after collision with walls and bricks.
 // Implement enemies. 
 
+/* Wall drop issue might be because the dir is being set 
+when the ball is past the wall, then the ball is being 
+moved BACK tot he wall, and the dir is being checked again.
+
+Might be fixed by either storing the previous ball dir on a change, and 
+if it goes out of bounds, force that dir again after moving it back into bounds;
+or by only checking for equality on the walls.
+*/
+
 //Arkanoid script
-//v0.21
-//22nd August, 2018
+//v0.23
+//26th August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -26,7 +35,7 @@ import "std.zh"
 	
 */
 
-ffc script version_alpha_0_21
+ffc script version_alpha_0_23
 {
 	void run(){}
 }
@@ -47,6 +56,9 @@ ffc script version_alpha_0_21
 ///Alpha 0.20: Added an ffc script that reports the version when assigning slots after compiling. 
 
 ///Alpha 0.21: Added code for advancing to the next stage.
+
+///Alpha 0.22: Fixed code for level advancement. Added second stage.
+///Alpha 0.23: Fixed brick.all_gone() counting gold bricks. 
 
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
@@ -73,7 +85,7 @@ const int FAST_MOUSE_MAX = 6;
 const int MIN_ZC_ALPHA_BUILD = 35; //Alphas are negatives, so we neex to check maximum, not minimum.
 
 
-const float ARKANOID_VERSION = 0.21;
+const float ARKANOID_VERSION = 0.23;
 const int MAX_STAGES = 2; //Number of stages/levels in the game.
 
 int GAME[256];
@@ -536,8 +548,10 @@ global script arkanoid
 				hold_Link_y(); //Don't allow Link to leave the screen, bt
 					//keep his X and Y matched to the Vaus!
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
-				if ( newstage ) 
+				while ( newstage ) 
 				{
+					
+					vaus = Screen->LoadFFC(FFC_VAUS);
 					//vaus_guard = Screen->CreateNPC(NPC_VAUSGUARD);
 					Game->PlayMIDI(MID_STAGE_START);
 					brick.setup();
@@ -545,27 +559,39 @@ global script arkanoid
 					
 					brick.clear_combos();
 					
-					newstage = false; //on a new stage, these aren't working right yet. 
+					TraceS("Setting up Vaus on a new stage"); 
 					paddle.setup(vaus);
+					TraceS("Creating a ball on a new stage");
 					ball.create(vaus);
 					movingball = vaus->Misc[MISC_BALLID];
+					vaus->Misc[MISC_DEAD] = 0; 
+					newstage = false; //on a new stage, these aren't working right yet. 
+					
 					
 				}
-				if ( leveldone )
+				while ( leveldone )
 				{
-					leveldone = false;
+					
 					//play stage end music
 					//Warp to new screen here.
 					if ( cur_stage < MAX_STAGES ) 
 					{
+					
 						Link->PitWarp(Game->GetCurDMap(), Game->GetCurScreen()+1);
+						++cur_stage;
 						newstage = true;
-						continue;
+						//continue;
 					}
 					else
 					{
-						//Win game
+						Game->PlayMIDI(1);
+						while(1)
+						{
+							Screen->DrawString(6, 96, 80, 1, 0x51, 0x00, 0, "DEMO OVER", 128);
+							Waitdraw(); Waitframe();
+						}
 					}
+					leveldone = false;
 				}
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
@@ -1452,7 +1478,10 @@ ffc script brick
 		for ( int q = Screen->NumNPCs(); q > 0; --q )
 		{
 			n = Screen->LoadNPC(q);
-			if ( n->Type == NPCT_OTHERFLOAT ) ++count;
+			if ( n->Type == NPCT_OTHERFLOAT ) 
+			{
+				if ( n->HP < 1000 ) ++count;
+			}
 		}
 		return ( count <= 0 );
 	}
@@ -2790,6 +2819,7 @@ global script init
 	{
 		quit = 0;
 		frame = -1;
+		cur_stage = 1;
 		Game->Counter[CR_LIVES] = 5;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -2802,6 +2832,7 @@ global script Init
 	{
 		quit = 0;
 		frame = -1;
+		cur_stage = 1;
 		Game->Counter[CR_LIVES] = 5;
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -2814,6 +2845,7 @@ global script onContinue
 	{
 		quit = 0;
 		frame = -1;
+		//cur_stage = 1;
 		Game->Counter[CR_LIVES] = 5;
 		Link->Invisible = true; 
 		Link->CollDetection = false;
