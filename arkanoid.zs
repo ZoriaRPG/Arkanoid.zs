@@ -2,8 +2,8 @@ import "std.zh"
 
 
 //Arkanoid script
-//v0.18
-//21st August, 2018
+//v0.17
+//19th August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -29,10 +29,6 @@ import "std.zh"
 ///		Then, re-implemented ONLY the Vaus midpoint physics.
 ///		Fixed the hack for UID in brick.take_hit(). This means that ZC 2.54 Alpha **32** is now the minimum ZC version.
 
-//Alpha 18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
-// 	The mouse mode must be enabled for this to function!
-//	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
-
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
 const float DIR_LUU = 4.3197;
@@ -51,9 +47,7 @@ const float DIR_URR = 5.1051;
 const float DIR_RUU = 5.1141;
 const float DIR_UUR = 5.1141;
 
-int last_mouse_x;
-int fast_mouse;
-const int FAST_MOUSE_MAX = 4;
+
 
 const int MIN_ZC_ALPHA_BUILD = 33; //Alphas are negatives, so we neex to check maximum, not minimum.
 
@@ -203,104 +197,35 @@ ffc script paddle
 		int dir; int dist;
 		if ( mouse ) 
 		{
-			if ( fast_mouse )
+			//get the mouse movement this frame and apply a relative amount to the paddle
+			//set the dir here
+			//set the dist here
+			//if moving left
+			//if ( p->X > PADDLE_MIN_X ) 
+			//{
+			//	p->X = Input->Mouse[_MOUSE_X];
+				//apply change -- ZC has no special mouse tracking. 
+			//}
+			//if moving right
+			if ( !extended )
 			{
-				int distx = Input->Mouse[_MOUSE_X] - last_mouse_x;
-				last_mouse_x = Input->Mouse[_MOUSE_X];
-				if ( !extended )
+				if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X )
 				{
-					
-					if ( distx < 0 ) 
+					if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X )
 					{
-						for ( int q = Abs(distx); q > 0 ; --q ) 
-						{
-							for ( int q = fast_mouse; q > 0; --q )
-							{
-								if ( p->X > PADDLE_MIN_X )
-								{
-									--p->X;
-								}
-							}
-						}
-					}
-					else
-					{
-						for ( int q = Abs(distx); q > 0 ; --q ) 
-						{
-							for ( int q = fast_mouse; q > 0; --q )
-							{
-								if ( p->X > PADDLE_MAX_X )
-								{
-									++p->X;
-								}
-							}
-						}
+						//apply change
+						p->X = Input->Mouse[_MOUSE_X];
 					}
 				}
-				else //extended
-				{
-					
-					if ( distx < 0 ) 
-					{
-						for ( int q = Abs(distx); q > 0 ; --q ) 
-						{
-							for ( int q = fast_mouse; q > 0; --q )
-							{
-								if ( p->X > PADDLE_MIN_X_EXTENDED )
-								{
-									--p->X;
-								}
-							}
-						}
-					}
-					else
-					{
-						for ( int q = Abs(distx); q > 0 ; --q ) 
-						{
-							for ( int q = fast_mouse; q > 0; --q )
-							{
-								if ( p->X > PADDLE_MAX_X_EXTENDED )
-								{
-									++p->X;
-								}
-							}
-						}
-					}
-				}
-				
 			}
 			else
 			{
-				//get the mouse movement this frame and apply a relative amount to the paddle
-				//set the dir here
-				//set the dist here
-				//if moving left
-				//if ( p->X > PADDLE_MIN_X ) 
-				//{
-				//	p->X = Input->Mouse[_MOUSE_X];
-					//apply change -- ZC has no special mouse tracking. 
-				//}
-				//if moving right
-				if ( !extended )
+				if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X_EXTENDED )
 				{
-					if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X )
+					if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X_EXTENDED )
 					{
-						if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X )
-						{
-							//apply change
-							p->X = Input->Mouse[_MOUSE_X];
-						}
-					}
-				}
-				else
-				{
-					if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X_EXTENDED )
-					{
-						if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X_EXTENDED )
-						{
-							//apply change
-							p->X = Input->Mouse[_MOUSE_X];
-						}
+						//apply change
+						p->X = Input->Mouse[_MOUSE_X];
 					}
 				}
 			}
@@ -319,6 +244,7 @@ ffc script paddle
 						{
 							if ( p->X > PADDLE_MIN_X )
 							{
+								--p->X;
 								--p->X;
 							}
 						}
@@ -761,8 +687,6 @@ global script arkanoid
 	}
 	void change_setting()
 	{
-		if ( Input->Key[KEY_V] ) { if ( fast_mouse < FAST_MOUSE_MAX ) ++fast_mouse; }
-		if ( Input->Key[KEY_C] ) { if ( fast_mouse > 0 ) --fast_mouse; }
 		if ( Input->Key[KEY_M] ) USE_MOUSE = 1;
 		if ( Input->Key[KEY_N] ) USE_MOUSE = 0;
 		if ( Input->Key[KEY_F] ) USE_ACCEL = 1;
