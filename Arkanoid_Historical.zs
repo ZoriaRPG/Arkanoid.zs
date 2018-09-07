@@ -1,11 +1,6 @@
 import "std.zh"
 
-
 //TODO: 
-// Rewrite capsules to use eweapons.
-// Fix extebnded vaus speed and movement. 
-//	Fast movement doesn't have an extended mode at all, at present!
-//	vaus->X += 1+(frame%2); //this seems fair.
 // Add catch, and laser
 // Add corner check for WALLS for various angles.
 // Implement new angles after collision with walls and bricks.
@@ -36,8 +31,8 @@ or by only checking for equality on the walls.
 */
 
 //Arkanoid script
-//v0.28
-//29th August, 2018
+//v0.29
+//30th August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -53,7 +48,7 @@ or by only checking for equality on the walls.
 	
 */
 
-ffc script version_alpha_0_28
+ffc script version_alpha_0_29
 {
 	void run(){}
 }
@@ -94,6 +89,14 @@ ffc script version_alpha_0_28
 ///	     : Added Extra Vaus powerups that function. 
 ///Alpha 0.28: Converted capsules to eweapons.
 ///	     : Fixed extended movement with both KB/JP and Mouse. 
+///Alpha 0.29: Added laser sprite change on powerup collection. Refactored powerup sounds.
+///	     : Refactor extend status to be controlled by the capsules, and added capsule.alloff(ffc), called on stage end or death.
+///	     : Added more sound effects.
+///	     : Added POINTS on collecting capsules. Capsule points are set in itemdata->Attributes[1]. 
+///	     : Began adding extra life on score reaching certain numbers. 
+///	     : Added high_score, and score clear system.
+///	     : Extra life from points set to 1000. Capsules award 10 points each. 
+///	     : Shift+M now enabled mouse and sets fast_mouse = 2;
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
 //! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
@@ -111,6 +114,39 @@ config STARTING_LIVES 		= 5;
 config CAPSULE_FALL_SPEED 	= 1;
 config BALL_INITIAL_STEP 	= 90;
 config CAPSULE_STEP		= 80;
+
+
+typedef const int sfx;
+
+sfx SFC_LASER = 3;
+sfx SFX_KILLENEMY = 2;
+sfx SFX_EXTEND = 4;
+sfx SFX_BALL_HIT_VAUS = 6;
+sfx SFX_BALL_HIT_BLOCK= 7;
+sfx SFX_BALL_HIT_SILVER= 8;
+sfx SFX_EXTRA_VAUS = 9;
+sfx SFX_VAUS_EXPLODE = 10;
+sfx SFX_ESCAPE = 11;
+sfx SFX_MATERIALISE = 12;
+sfx SFX_BEEP = 1;
+sfx SFX_ARK2_LASER = 13;
+sfx SFX_ARK2_KILLENEMY = 14;
+sfx SFX_ARK2_HITGREY = 15;
+sfx SFX_ARK2_HITGOLD = 16;
+sfx SFX_ARK2_EXTRAVAUS = 17;
+
+sfx SFX_ARK2_HITVAUS = 18;
+sfx SFX_ARK2_HITWALL = 19;
+sfx SFX_ARK2_POWERUP = 20;
+sfx SFX_ARK2_EXTEND = 21; //too quiet
+sfx SFX_ARK2_POWERUP2 = 22; //
+sfx SFX_ARK2_VAUSEXPLODE = 23;
+sfx SFX_ARK2_WOOSH = 24;
+sfx SFX_ARK2_MATERIALISE = 25;
+sfx SFX_ARK2_BOSSALERT = 26;
+sfx SFX_ARK2_CRYSTAL = 27; 
+sfx SFX_ARK2_ESCAPE = 28;
+sfx SFX_ARK2_BELLS_CHIMES = 29;
 
 const float ARKANOID_VERSION = 0.25;
 
@@ -147,33 +183,50 @@ const int FFC_VAUS = 1;
 const int CMB_VAUS_EXTENDED = 1528;
 const int CMB_VAUS = 1524;
 const int CMB_VAUS_DEAD = 1520;
+const int CMB_VAUS_LASER = 1532;
 
 const int MID_STAGE_START = 4;
 const int NPCM_AWARDED_POINTS = 3; //brick->Misc[], flag to mark if points were awarded to the player. 
 const int NPC_ATTRIB_POINTS = 0; //brick->Attributes[], value for score. 
+const int CAPS_EW_MISC_POINTS = 6;
 
 //Counters
 const int CR_SCORE = 7; //script 1
 const int CR_LIVES = 8; 
 
+int high_score; //saved with quest.
+int last_score_award;
+config SCORE_BONUS_LIFE_AT = 1000; 
+
+//game objects
+int ball_uid;
+
+//game states
 int quit;
+int frame;
+
+bool newstage = true;
+bool leveldone = false;
+int cur_stage;
 
 const int QUIT_TITLE = -1;
 const int QUIT_GAME_RUNNING = 0; //i.e., !quit
 const int QUIT_GAMEOVER = 1;
 
+const int FRAMES_PER_MOVEMENT = 10; 
+int USE_ACCEL = 0; //Do we accelerate KB/JP input?
+int USE_MOUSE = 0; //Are we using the mouse?
 
-
+//Vaus states
+bool revive_vaus = false; 
+bool extended;
+bool laser;
 int caught; //States: 0, none. 1: Vaus can catch ball. 2: Vaus is holding the ball. 
 const int CATCH_NONE = 0;
 const int CATCH_ALLOW = 1;
 const int CATCH_HOLDING_BALL = 2;
 
-int frame;
-bool newstage = true;
-bool revive_vaus = false; 
-
-
+//Ball properties (probably unused at this point)
 int ball_x;
 int ball_y;
 int ball_dir;
@@ -185,12 +238,6 @@ int paddle_x;
 int paddle_y;
 int paddle_width = 16;
 int paddle_speed = 2;
-bool extended;
-
-int ball_uid;
-
-bool leveldone = false;
-int cur_stage;
 
 //animation
 int death_frame;
@@ -206,8 +253,6 @@ const int DEATH_ANIM_4 = 4;
 const int DEATH_ANIM_5 = 5;
 const int DEATH_ANIM_6 = 6;
 const int DEATH_ANIM_COUNTDOWN_TO_QUIT = 7;
-
-
 
 const int COUNTDOWN_TO_QUIT_FRAMES = 289; //36*8+1;
 
@@ -256,9 +301,7 @@ const int _MOUSE_LCLICK = 2;
 
 //const float ACCEL_FACTOR = 0.25;
 
-const int FRAMES_PER_MOVEMENT = 10; 
-int USE_ACCEL = 0; //Do we accelerate KB/JP input?
-int USE_MOUSE = 0; //Are we using the mouse?
+
 
 
 /*
@@ -531,6 +574,7 @@ ffc script paddle
 	}
 	void setup(ffc p)
 	{
+		Game->PlaySound(SFX_MATERIALISE);
 		p->Y = START_PADDLE_Y;
 		p->X = START_PADDLE_X;
 		p->Data = CMB_VAUS;
@@ -543,8 +587,23 @@ ffc script paddle
 		p->TileWidth = 2;
 		death_frame = frame;
 	}
-	
-
+	void check_score_extralife()
+	{
+		int score = Game->Counter[CR_SCORE];
+		if ( score >= (last_score_award+SCORE_BONUS_LIFE_AT) )
+		{
+			last_score_award += SCORE_BONUS_LIFE_AT;
+			Game->PlaySound(SFX_EXTRA_VAUS);
+			++Game->Counter[CR_LIVES];
+			
+		}
+	}
+	void clearscore()
+	{
+		if ( last_score_award > high_score ) high_score = last_score_award;
+		last_score_award = 0;
+		
+	}
 }
 
 const int MISC_BALLID = 0; //Misc index of Vaud->Misc[]
@@ -629,12 +688,14 @@ global script arkanoid
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
 				while ( newstage ) 
 				{
-					capsule.all_clear();
-					extended = false;
+					capsule.alloff(vaus); //clear powerup status
+					capsule.all_clear(); //remove visible capsules
+					
 					hold_Link_y();
 					vaus = Screen->LoadFFC(FFC_VAUS);
 					//vaus_guard = Screen->CreateNPC(NPC_VAUSGUARD);
 					Game->PlayMIDI(MID_STAGE_START);
+					
 					brick.setup();
 					Waitframes(6);
 					
@@ -678,9 +739,11 @@ global script arkanoid
 				}
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
+					capsule.alloff(vaus);
 					capsule.all_clear();
-					extended = false;
+					
 					Game->PlayMIDI(MID_STAGE_START);
+					
 					vaus->Misc[MISC_DEAD] = 0; 
 					revive_vaus = false;
 					
@@ -746,7 +809,7 @@ global script arkanoid
 					//if ( frame%60 == 0 ) { Trace(movingball->Step); }
 					//Trace(movingball->Step);
 					change_setting(); //check for a setting change_setting
-					paddle.extend(vaus);
+					//paddle.extend(vaus);
 					paddle.check_input();
 					paddle.move(USE_MOUSE, USE_ACCEL, vaus);
 					
@@ -818,6 +881,7 @@ global script arkanoid
 				//capsule.all_fall(vaus, movingball); //Handles all capsule interactions. 
 				capsule.convert();
 				capsule._run(vaus, movingball);
+				paddle.check_score_extralife();
 				if ( !(frame%30) ) capsule.cleanup();
 				
 				Waitdraw();
@@ -854,6 +918,13 @@ global script arkanoid
 						}
 					}
 					
+				if ( Input->Key[KEY_4] )
+				{
+					TraceNL(); TraceS(" 'vaus' Pointer is: "); Trace(vaus);
+					TraceNL(); TraceS(" 'movingball' Pointer is: "); Trace(movingball);
+					TraceNL(); TraceS(" 'vaus_guard' Pointer is: "); Trace(vaus_guard);
+					
+				}
 				
 				hold_Link_y();
 				
@@ -922,6 +993,7 @@ global script arkanoid
 					GAME[GAME_MISC_FLAGS]|=GMFS_PLAYED_GAME_OVER_MUSIC;
 					//Play Game over MIDI
 					Game->PlayMIDI(1);
+					paddle.clearscore();
 				}
 					
 				Screen->DrawString(6, 96, 80, 1, 0x51, 0x00, 0, "GAME OVER", 128);
@@ -937,7 +1009,15 @@ global script arkanoid
 	{
 		if ( Input->Key[KEY_V] && (frame%10 == 0)) { if ( fast_mouse < FAST_MOUSE_MAX ) ++fast_mouse; TraceNL(); TraceS("fast_mouse is now: "); Trace(fast_mouse);  }
 		if ( Input->Key[KEY_C] && (frame%10 == 0) ) { if ( fast_mouse > 0 ) --fast_mouse; TraceNL(); TraceS("fast_mouse is now: "); Trace(fast_mouse);  }
-		if ( Input->Key[KEY_M] ) USE_MOUSE = 1;
+		if ( Input->Key[KEY_M] ) 
+		{ 
+			if ( PressShift() ) 
+			{
+				USE_MOUSE = 1;
+				fast_mouse = 2;
+			}
+			else 	USE_MOUSE = 1;
+		}
 		if ( Input->Key[KEY_N] ) USE_MOUSE = 0;
 		if ( Input->Key[KEY_F] ) USE_ACCEL = 1;
 		if ( Input->Key[KEY_G] ) USE_ACCEL = 0;
@@ -1027,6 +1107,8 @@ ffc script ball
 		ball->HitXOffset = -1; //so that the ball bounces when its edges touch a brick. 
 		ball->HitYOffset = -1; //so that the ball bounces when its edges touch a brick. 
 		vaus_id->Misc[MISC_BALLID] = ball;
+		TraceNL();TraceS("ball pointer: "); Trace(ball);
+		TraceNL();TraceS("ball Pointer, stored: "); Trace(vaus_id->Misc[MISC_BALLID]);
 	}
 	void drawover(lweapon b)
 	{
@@ -1050,7 +1132,7 @@ ffc script ball
 		if ( launched ) 
 		{
 			//b->Angular = true;
-			Game->PlaySound(6);
+			Game->PlaySound(SFX_BALL_HIT_VAUS);
 			b->Dir = DIR_RIGHTUP;	
 			b->Step = BALL_INITIAL_STEP;
 			b->Misc[MISC_LAUNCHED] = 1;
@@ -1089,32 +1171,32 @@ ffc script ball
 	}
 	void clamp_leftwall(lweapon b)
 	{
-		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( caught == CATCH_HOLDING_BALL ) return; //don't do anything while the vaus is holding the ball
 		if ( b->X < BALL_MIN_X ) b ->X = BALL_MIN_X;
 	}
 	void clamp_rightwall(lweapon b)
 	{
-		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( caught == CATCH_HOLDING_BALL ) return; //don't do anything while the vaus is holding the ball
 		if ( b->X > BALL_MAX_X ) b->X = BALL_MAX_X;
 	}
 	/*
 	void clamp_bottom(lweapon b, ffc v)
 	{
-		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( caught == CATCH_HOLDING_BALL ) return; //don't do anything while the vaus is holding the ball
 		if ( b->Y+4 > v->Y+8 ) dead(b,v);
 	}
 	*/
 	//A function to check of the bounding will prevent the ball from falling out of field.
 	void clamp_bottom(lweapon b, ffc v)
 	{
-		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( caught == CATCH_HOLDING_BALL ) return; //don't do anything while the vaus is holding the ball
 		if ( b->Y+4 > v->Y ) b->Y = v->Y-4;
 	}
 	void check_ceiling(lweapon b)
 	{
 		if ( b->Y == BALL_MIN_Y )			
 		{
-			Game->PlaySound(7);
+			Game->PlaySound(SFX_BALL_HIT_BLOCK);
 			if ( b->Angular )
 			{
 				switch(b->Angle)
@@ -1166,10 +1248,10 @@ ffc script ball
 	}
 	void check_leftwall(lweapon b)
 	{
-		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( caught == CATCH_HOLDING_BALL ) return; //don't do anything while the vaus is holding the ball
 		if ( b->X == BALL_MIN_X ) 
 		{
-			Game->PlaySound(7);
+			Game->PlaySound(SFX_BALL_HIT_BLOCK);
 			if ( b->Angular )
 			{
 				switch(b->Angle)
@@ -1221,10 +1303,10 @@ ffc script ball
 	}
 	void check_rightwall(lweapon b)
 	{
-		if ( caught ) return; //don't do anything while the vaus is holding the ball
+		if ( caught == CATCH_HOLDING_BALL ) return; //don't do anything while the vaus is holding the ball
 		if ( b->X == BALL_MAX_X ) 
 		{
-			Game->PlaySound(7);
+			Game->PlaySound(SFX_BALL_HIT_BLOCK);
 			if ( b->Angular )
 			{
 				switch(b->Angle)
@@ -1306,7 +1388,7 @@ ffc script ball
 					{
 						if ( b->X <= v->X+((v->TileWidth*16)+4) ) //no +3 here, because it's the actual X, so the first pixel of the ball is covered by the last pixel of the vaus.
 						{
-							Game->PlaySound(6);
+							Game->PlaySound(SFX_BALL_HIT_VAUS);
 							//b->Y = v->Y-1;
 							
 							if ( ball_midpoint <= vaus_midpoint ) //hit left side of vaus
@@ -1615,6 +1697,8 @@ ffc script capsule
 		const int CAPS_EW_MISC_TYPE = 5;
 		const int CAPS_ITEM_ATTRIB_TYPE = 0;
 		const int CAPS_ITEM_SPRITE = 0;
+		//const int CAPS_EW_MISC_POINTS = 6; //global
+		const int CAPS_ITEM_ATTRIB_POINTS = 1;
 		item c; itemdata id;
 		for ( int q = Screen->NumItems(); q > 0; --q )
 		{
@@ -1627,6 +1711,7 @@ ffc script capsule
 				cap->Y = c->Y;
 				cap->Misc[CAPS_EW_MISC_TYPE] = id->Attributes[CAPS_ITEM_ATTRIB_TYPE];
 				cap->UseSprite(id->Sprites[CAPS_ITEM_SPRITE]);
+				cap->Misc[CAPS_EW_MISC_POINTS] = id->Attributes[CAPS_ITEM_ATTRIB_POINTS];
 				//c->DrawYOffset = -16000;
 				cap->HitWidth = c->HitWidth;
 				cap->HitHeight = c->HitHeight;
@@ -1661,13 +1746,13 @@ ffc script capsule
 		int captype = c->ID;
 		switch(get_type(c))
 		{
-			case CAPS_TYPE_EXTEND: { extend(v); return true; }
-			case CAPS_TYPE_BREAK: { escape(v); return true; }
-			case CAPS_TYPE_CATCH: { catchball(v); return true; }
-			case CAPS_TYPE_DIVIDE: { split(v,b); return true; }
-			case CAPS_TYPE_LASER: { laser(v); return true; }
-			case CAPS_TYPE_VAUS:{ extravaus(v); return true; }
-			case CAPS_TYPE_SLOW:{ slow(v,b); return true; }
+			case CAPS_TYPE_EXTEND: { extend(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_BREAK: { escape(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_CATCH: { catchball(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_DIVIDE: { split(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_LASER: { laser(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_VAUS:{ extravaus(v); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
+			case CAPS_TYPE_SLOW:{ slow(v,b); Game->Counter[CR_SCORE] += c->Misc[CAPS_EW_MISC_POINTS]; return true; }
 			default: break;
 		}
 				
@@ -1704,75 +1789,88 @@ ffc script capsule
 	{
 		TraceNL(); TraceS("Capsule LASER struck vaus!!");
 		extended = false;
+		Game->PlaySound(SFX_ARK2_POWERUP2);
+		v->Data = CMB_VAUS_LASER;
+		v->TileWidth = 2;
 		//Game->PlaySound(capsule)
 		//change the vaus data to the laser
-		//laser = true;
-		//entended = false;
-		//caught = 0;
+		laser = true;
+		caught = CATCH_NONE;
+		
 	}
 	void extend(ffc v)
 	{
 		TraceNL(); TraceS("Capsule EXTEND struck vaus!!");
-		Game->PlaySound(4);
+		Game->PlaySound(SFX_EXTEND);
 		//change the vaus data to the default
 		//this is needed because collecting any powerup after
 		//a laser capsule reverts fromt he laser status
-		//laser = false;
+		laser = false;
 		extended = true;
-		//caught = 0;
+		v->Data = CMB_VAUS_EXTENDED;
+		v->TileWidth = 3;
+		caught = CATCH_NONE;
 	}
 	void slow(ffc v, lweapon b)
 	{
-		TraceNL(); TraceS("Capsule SLOW struck vaus!!");
-		//v->Data = default;
-		Game->PlaySound(1);
-		//laser = false;
+		TraceNL(); TraceS("Capsule SLOW struck vaus!!");;
+		Game->PlaySound(SFX_ARK2_POWERUP2);
+		laser = false;
 		extended = false;
-		//caught = 0;
+		v->Data = CMB_VAUS;
+		v->TileWidth = 2;
+		caught = CATCH_NONE;
 		b->Step = BALL_INITIAL_STEP;
 	}
 	void escape(ffc v)
 	{
+		Game->PlaySound(SFX_ARK2_POWERUP);
 		TraceNL(); TraceS("Capsule BREAK struck vaus!!");
 		extended = false;
+		v->Data = CMB_VAUS;
+		v->TileWidth = 2;
 		////Game->PlaySound(capsule)
-		//laser = false;
-		//caught = 0;
-		//extended = false;
-		//v->Data = default;
+		laser = false;
+		caught = CATCH_NONE;
+		
 		//create exit
 	}
 	void extravaus(ffc v)
 	{
 		TraceNL(); TraceS("Capsule VAUS struck vaus!!");
-		Game->PlaySound(9);
-		//laser = false;
+		Game->PlaySound(SFX_EXTRA_VAUS);
+		laser = false;
 		extended = false;
-		caught = 0;
-		//v->Data = default;
+		caught = CATCH_NONE;
+		v->Data = CMB_VAUS;
+		v->TileWidth = 2;
 		++Game->Counter[CR_LIVES];
 	}
 	void split(ffc v, lweapon b)
 	{
+		Game->PlaySound(SFX_ARK2_POWERUP2);
 		TraceNL(); TraceS("Capsule SPLIT struck vaus!!");
 		extended = false;
+		v->Data = CMB_VAUS;
+		v->TileWidth = 2;
 		////Game->PlaySound(capsule)
-		//laser = false;
-		//extended = false;
-		//caught = 0;
-		//v->Data = default;
-		//fuck this is going to be hard to add
+		laser = false;
+		caught = CATCH_NONE;
+		
+		//! fuck this is going to be hard to add
 		
 	}
 	void catchball(ffc v)
 	{
+		Game->PlaySound(SFX_ARK2_POWERUP2);
 		TraceNL(); TraceS("Capsule CATCH struck vaus!!");
 		extended = false;
+		v->Data = CMB_VAUS;
+		v->TileWidth = 2;
 		////Game->PlaySound(capsule)
-		//laser = false;
-		//extended = false;
-		//v->Data = default;
-		//caught = 1;
+		laser = false;
+		extended = false;
+		caught = CATCH_ALLOW;
 		
 		/* For catching the ball:
 			When the catch state is 1, then if the ball strikes the vaus **AND** the vaus state is NOT HOLDING_BALL, 
@@ -1782,6 +1880,15 @@ ffc script capsule
 			to b->Step, the Misc[] index is cleared, v->Misc[HOLDING_BALL] is set to 0, and catch is set back to 1. 
 		*/
 		
+	}
+	void alloff(ffc v)
+	{
+		TraceNL(); TraceS("Clearing all power-up conditions.");
+		laser = false;
+		extended = false;
+		v->Data = CMB_VAUS;
+		v->TileWidth = 2;
+		caught = CATCH_NONE;
 	}
 	int choosetype()
 	{
@@ -1903,6 +2010,15 @@ ffc script brick
 		lweapon hitwpn = a->Misc[12];
 		return ( hitwpn->UID == v->UID );
 		*/
+		if ( a->HitBy[HIT_BY_LWEAPON_UID] == v->UID )
+		{
+			
+			
+			TraceNL(); TraceS("Brick hit by Weapon Type: "); Trace(a->HitBy[12]);
+			TraceNL(); TraceS("Brick hit by Weapon from Item ID: "); Trace(a->HitBy[15]);
+			
+			return true;
+		}
 		return ( a->HitBy[HIT_BY_LWEAPON_UID] == v->UID );
 		//int indx; //Until we have UIDs working for HitBy[], we need to do it this way. 
 		//for ( int q = Screen->NumLWeapons(); q > 0; --q ) 
@@ -3216,6 +3332,7 @@ global script onExit
 		Screen->LayerMap[0] = templayer[2];
 		Screen->LayerMap[1] = templayer[3];
 		newstage = true;
+		paddle.clearscore();
 		//vaus->Misc[MISC_DEAD] = 0;
 
 	}
