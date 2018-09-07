@@ -1,9 +1,13 @@
 import "std.zh"
 
+//TODO: 
+// Add corner check for WALLS for various angles.
+// Implement new angles after collision with walls and bricks.
+// Implement enemies. 
 
 //Arkanoid script
-//v0.16
-//17th August, 2018
+//v0.19
+//22nd August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -29,6 +33,10 @@ import "std.zh"
 ///		Then, re-implemented ONLY the Vaus midpoint physics.
 ///		Fixed the hack for UID in brick.take_hit(). This means that ZC 2.54 Alpha **32** is now the minimum ZC version.
 
+//Alpha 18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
+// 	The mouse mode must be enabled for this to function!
+//	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
+
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
 const float DIR_LUU = 4.3197;
@@ -47,9 +55,11 @@ const float DIR_URR = 5.1051;
 const float DIR_RUU = 5.1141;
 const float DIR_UUR = 5.1141;
 
+int last_mouse_x;
+int fast_mouse;
+const int FAST_MOUSE_MAX = 6;
 
-
-const int MIN_ZC_ALPHA_BUILD = 32; //Alphas are negatives, so we neex to check maximum, not minimum.
+const int MIN_ZC_ALPHA_BUILD = 33; //Alphas are negatives, so we neex to check maximum, not minimum.
 
 
 const float ARKANOID_VERSION = 0.16;
@@ -102,6 +112,8 @@ int ball_uid;
 //animation
 int death_frame;
 
+const int DEATH_ANIM_MAX = 8;
+
 int death_anim[DEATH_ANIM_MAX]; 
 const int DEATH_ANIM_TIMER = 0;
 const int DEATH_ANIM_1 = 1; //1-7 Unused 
@@ -112,7 +124,7 @@ const int DEATH_ANIM_5 = 5;
 const int DEATH_ANIM_6 = 6;
 const int DEATH_ANIM_COUNTDOWN_TO_QUIT = 7;
 
-const int DEATH_ANIM_MAX = 8;
+
 
 const int COUNTDOWN_TO_QUIT_FRAMES = 289; //36*8+1;
 
@@ -197,41 +209,113 @@ ffc script paddle
 		int dir; int dist;
 		if ( mouse ) 
 		{
-			//get the mouse movement this frame and apply a relative amount to the paddle
-			//set the dir here
-			//set the dist here
-			//if moving left
-			//if ( p->X > PADDLE_MIN_X ) 
-			//{
-			//	p->X = Input->Mouse[_MOUSE_X];
-				//apply change -- ZC has no special mouse tracking. 
-			//}
-			//if moving right
-			if ( !extended )
+			Game->ClickToFreezeEnabled = false;
+			if ( fast_mouse )
 			{
-				if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X )
+				int distx = Input->Mouse[_MOUSE_X] - last_mouse_x;
+				//Trace(distx);
+				last_mouse_x = Input->Mouse[_MOUSE_X];
+				if ( !extended )
 				{
-					if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X )
+					
+					if ( distx < 0 ) 
 					{
-						//apply change
-						p->X = Input->Mouse[_MOUSE_X];
+						Trace(distx);
+						for ( int q = Abs(distx) * fast_mouse; q > 0 ; --q ) 
+						{
+							
+							if ( p->X > PADDLE_MIN_X )
+							{
+								--p->X;
+							}
+							
+						}
+					}
+					else if ( distx > 0 )
+					{
+						Trace(distx);
+						for ( int q = Abs(distx) * fast_mouse; q > 0 ; --q ) 
+						{
+							
+							if ( p->X < PADDLE_MAX_X )
+							{
+								++p->X;
+							}
+							
+						}
 					}
 				}
+				else //extended
+				{
+					
+					if ( distx < 0 ) 
+					{
+						for ( int q = Abs(distx); q > 0 ; --q ) 
+						{
+							for ( int q = fast_mouse; q > 0; --q )
+							{
+								if ( p->X > PADDLE_MIN_X_EXTENDED )
+								{
+									--p->X;
+								}
+							}
+						}
+					}
+					else
+					{
+						for ( int q = Abs(distx); q > 0 ; --q ) 
+						{
+							for ( int q = fast_mouse; q > 0; --q )
+							{
+								if ( p->X > PADDLE_MAX_X_EXTENDED )
+								{
+									++p->X;
+								}
+							}
+						}
+					}
+				}
+				
 			}
 			else
 			{
-				if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X_EXTENDED )
+				//get the mouse movement this frame and apply a relative amount to the paddle
+				//set the dir here
+				//set the dist here
+				//if moving left
+				//if ( p->X > PADDLE_MIN_X ) 
+				//{
+				//	p->X = Input->Mouse[_MOUSE_X];
+					//apply change -- ZC has no special mouse tracking. 
+				//}
+				//if moving right
+				if ( !extended )
 				{
-					if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X_EXTENDED )
+					if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X )
 					{
-						//apply change
-						p->X = Input->Mouse[_MOUSE_X];
+						if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X )
+						{
+							//apply change
+							p->X = Input->Mouse[_MOUSE_X];
+						}
+					}
+				}
+				else
+				{
+					if ( Input->Mouse[_MOUSE_X] <= PADDLE_MAX_X_EXTENDED )
+					{
+						if ( Input->Mouse[_MOUSE_X] >= PADDLE_MIN_X_EXTENDED )
+						{
+							//apply change
+							p->X = Input->Mouse[_MOUSE_X];
+						}
 					}
 				}
 			}
 		}
 		else //using a KB or joypad
 		{
+			Game->ClickToFreezeEnabled = true;
 			//check how long the dir button is held
 			if ( accel ) //if we allow acceleratiopn, move N pixeld * accel factor * frames held
 			{
@@ -244,7 +328,6 @@ ffc script paddle
 						{
 							if ( p->X > PADDLE_MIN_X )
 							{
-								--p->X;
 								--p->X;
 							}
 						}
@@ -687,6 +770,8 @@ global script arkanoid
 	}
 	void change_setting()
 	{
+		if ( Input->Key[KEY_V] && (frame%10 == 0)) { if ( fast_mouse < FAST_MOUSE_MAX ) ++fast_mouse; TraceNL(); TraceS("fast_mouse is now: "); Trace(fast_mouse);  }
+		if ( Input->Key[KEY_C] && (frame%10 == 0) ) { if ( fast_mouse > 0 ) --fast_mouse; TraceNL(); TraceS("fast_mouse is now: "); Trace(fast_mouse);  }
 		if ( Input->Key[KEY_M] ) USE_MOUSE = 1;
 		if ( Input->Key[KEY_N] ) USE_MOUSE = 0;
 		if ( Input->Key[KEY_F] ) USE_ACCEL = 1;
@@ -785,6 +870,12 @@ ffc script ball
 		for ( int q = CB_A; q < CB_R; ++q ) 
 		{
 			if ( Input->Press[q] ) { launched = true; break; }
+		}
+		if ( USE_MOUSE ) 
+		{
+			//if ( Input->Mouse[_MOUSE_LCLICK] )  //Not working?!
+			if ( Link->InputMouseB )
+				launched = true;
 		}
 		if ( launched ) 
 		{
