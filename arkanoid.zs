@@ -1,9 +1,29 @@
 import "std.zh"
 
 //TODO: 
+// Rewrite capsules to use eweapons.
+// Fix extebnded vaus speed and movement. 
+//	Fast movement doesn't have an extended mode at all, at present!
+//	vaus->X += 1+(frame%2); //this seems fair.
+// Add catch, and laser
 // Add corner check for WALLS for various angles.
 // Implement new angles after collision with walls and bricks.
 // Implement enemies. 
+
+	/*Capsule Rewrite
+
+
+	1. Use itemdata->attribs for caps type
+	2. Use itemdata->sprites for the sprite to use on an eweapon
+	3. If the item appears, spawn an eweapon in its place and remove the item
+	4. Apply the itemdata->id to ew->Misc[] and read it in place of the item id
+		4(a). 	eweapons wouldnt need to be manually moved:
+			Just set their dir = down and a step speed
+		4(b).	Blocks can use item dropsets for pills to drop
+	5. Set the default item drawyoffset to offscreen, so that eweapon spawns aren't visible
+		5(a).	Now we can rid ourselves of the script draws and the loops to move everything
+	6. Perform removal of eweapons every 10 frames with capsule.cleanup() called if !(frame%10)
+	*/
 
 /* Wall drop issue might be because the dir is being set 
 when the ball is past the wall, then the ball is being 
