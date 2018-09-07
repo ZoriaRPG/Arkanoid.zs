@@ -15,8 +15,8 @@ or by only checking for equality on the walls.
 */
 
 //Arkanoid script
-//v0.26
-//26th August, 2018
+//v0.27
+//27th August, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -32,7 +32,7 @@ or by only checking for equality on the walls.
 	
 */
 
-ffc script version_alpha_0_25
+ffc script version_alpha_0_27
 {
 	void run(){}
 }
@@ -65,6 +65,12 @@ ffc script version_alpha_0_25
 ///Alpha 0.25: Added capsule class, and set up base functions, to generate capsules and make them fall.
 ///	     : Capsules now appear int he game, but as of this time, they do not activate any power-ups. 
 ///
+///Alpha 0.26: Added more capsule functions.
+///Alpha 0.27: Wrote capsule.check_hitvaus() and polished other capsule functions, adding traces to test them.
+///	     : Added drawover() functions to capsule and ball classes. 
+///	     : Added extend state capabilities to game. Extend capsules now extend the Vaus.
+///	     : Added slow capsule powerups that function.
+///	     : Added Extra Vaus powerups that function. 
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
 //! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
@@ -80,6 +86,7 @@ config MAX_BALL_SPEED 		= 300;
 config MIN_ZC_ALPHA_BUILD 	= 35; //Alphas are negatives, so we neex to check maximum, not minimum.
 config STARTING_LIVES 		= 5; 
 config CAPSULE_FALL_SPEED 	= 1;
+config BALL_INITIAL_STEP 	= 90;
 
 const float ARKANOID_VERSION = 0.25;
 
@@ -133,7 +140,11 @@ const int QUIT_GAMEOVER = 1;
 
 
 
-int caught;
+int caught; //States: 0, none. 1: Vaus can catch ball. 2: Vaus is holding the ball. 
+const int CATCH_NONE = 0;
+const int CATCH_ALLOW = 1;
+const int CATCH_HOLDING_BALL = 2;
+
 int frame;
 bool newstage = true;
 bool revive_vaus = false; 
@@ -150,7 +161,7 @@ int paddle_x;
 int paddle_y;
 int paddle_width = 16;
 int paddle_speed = 2;
-int extended;
+bool extended;
 
 int ball_uid;
 
@@ -570,6 +581,7 @@ global script arkanoid
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
 				while ( newstage ) 
 				{
+					extended = false;
 					hold_Link_y();
 					vaus = Screen->LoadFFC(FFC_VAUS);
 					//vaus_guard = Screen->CreateNPC(NPC_VAUSGUARD);
@@ -615,6 +627,7 @@ global script arkanoid
 				}
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
+					extended = false;
 					Game->PlayMIDI(MID_STAGE_START);
 					vaus->Misc[MISC_DEAD] = 0; 
 					revive_vaus = false;
@@ -690,7 +703,7 @@ global script arkanoid
 						ball.move_with_vaus(movingball, vaus);
 					}
 					
-					
+					ball.drawover(movingball);
 					//clamp within bounds - MANDATORY because very fast Step speeds can cause the ball
 					//to *phase* through pseudo-solid objects, such as walls and the Vaus. 
 					ball.clamp_rightwall(movingball);
@@ -749,7 +762,8 @@ global script arkanoid
 				}
 				
 				//Capsule mechanics
-				capsule.all_fall();
+				capsule.all_fall(vaus, movingball); //Handles all capsule interactions. 
+				
 				
 				Waitdraw();
 				
@@ -959,6 +973,11 @@ ffc script ball
 		ball->HitYOffset = -1; //so that the ball bounces when its edges touch a brick. 
 		vaus_id->Misc[MISC_BALLID] = ball;
 	}
+	void drawover(lweapon b)
+	{
+		b->DrawYOffset = -32768; //I'm not sure why the script draw for this is mis-drawing relative to the angle of the ball.
+		Screen->DrawTile(6,b->X,b->Y,b->Tile,b->TileWidth,b->TileHeight,b->CSet,-1,-1,0,0,0,0,true,128);
+	}
 	void launch(lweapon b)
 	{
 		if ( b->Misc[MISC_LAUNCHED] ) return;
@@ -978,7 +997,7 @@ ffc script ball
 			//b->Angular = true;
 			Game->PlaySound(6);
 			b->Dir = DIR_RIGHTUP;	
-			b->Step = 90;
+			b->Step = BALL_INITIAL_STEP;
 			b->Misc[MISC_LAUNCHED] = 1;
 		}
 	}
@@ -1514,11 +1533,15 @@ ffc script capsule
 	}
 	void drawover(item c)
 	{
-		//draw tile
+		DrawToLayer(c, 5, 128);
 	}
 	bool check_hitvaus(item c, ffc v, lweapon b)
 	{
-		
+		//mask out the area of the screen where the Vaus paddle isn't located, relative to the capsule hitbox. 
+		if ( (c->Y+c->HitHeight) < START_PADDLE_Y ) return false;
+		if ( c->Y > (START_PADDLE_Y+START_PADDLE_HEIGHT-2) ) return false; //last two pixels of vaus
+		if ( (c->X+c->HitWidth) < v->X ) return false;
+		if ( c->X > (v->X+(v->TileWidth*16)) ) return false; 
 		//if it hits, check the type
 		int captype = c->ID;
 		switch(captype)
@@ -1526,7 +1549,7 @@ ffc script capsule
 			case CAPS_TYPE_EXTEND: { extend(v); return true; }
 			case CAPS_TYPE_BREAK: { escape(v); return true; }
 			case CAPS_TYPE_CATCH: { catchball(v); return true; }
-			case CAPS_TYPE_DIVIDE: { split(v); return true; }
+			case CAPS_TYPE_DIVIDE: { split(v,b); return true; }
 			case CAPS_TYPE_LASER: { laser(v); return true; }
 			case CAPS_TYPE_VAUS:{ extravaus(v); return true; }
 			case CAPS_TYPE_SLOW:{ slow(v,b); return true; }
@@ -1539,66 +1562,85 @@ ffc script capsule
 	}
 	void laser(ffc v)
 	{
+		TraceNL(); TraceS("Capsule LASER struck vaus!!");
+		extended = false;
 		//Game->PlaySound(capsule)
 		//change the vaus data to the laser
 		//laser = true;
 		//entended = false;
-		//catch = false;
+		//caught = 0;
 	}
 	void extend(ffc v)
 	{
-		//Game->PlaySound(capsule)
+		TraceNL(); TraceS("Capsule EXTEND struck vaus!!");
+		Game->PlaySound(4);
 		//change the vaus data to the default
 		//this is needed because collecting any powerup after
 		//a laser capsule reverts fromt he laser status
 		//laser = false;
-		//extended = true;
-		//catch = false;
+		extended = true;
+		//caught = 0;
 	}
 	void slow(ffc c, lweapon b)
 	{
+		TraceNL(); TraceS("Capsule SLOW struck vaus!!");
 		//v->Data = default;
-		//Game->PlaySound(capsule)
+		Game->PlaySound(1);
 		//laser = false;
-		//extended = false;
-		//catch = false;
-		//b->Step = default;
+		extended = false;
+		//caught = 0;
+		b->Step = BALL_INITIAL_STEP;
 	}
 	void escape(ffc v)
 	{
+		TraceNL(); TraceS("Capsule BREAK struck vaus!!");
+		extended = false;
 		////Game->PlaySound(capsule)
 		//laser = false;
-		//catch = false;
+		//caught = 0;
 		//extended = false;
 		//v->Data = default;
 		//create exit
 	}
 	void extravaus(ffc v)
 	{
-		////Game->PlaySound(capsule)
+		TraceNL(); TraceS("Capsule VAUS struck vaus!!");
+		Game->PlaySound(9);
 		//laser = false;
-		//extended = false;
-		//catch = false;
+		extended = false;
+		caught = 0;
 		//v->Data = default;
-		//++Game->Counter[lives]
+		++Game->Counter[CR_LIVES];
 	}
 	void split(ffc v, lweapon b)
 	{
+		TraceNL(); TraceS("Capsule SPLIT struck vaus!!");
+		extended = false;
 		////Game->PlaySound(capsule)
 		//laser = false;
 		//extended = false;
-		//catch = false;
+		//caught = 0;
 		//v->Data = default;
 		//fuck this is going to be hard to add
 		
 	}
 	void catchball(ffc v)
 	{
+		TraceNL(); TraceS("Capsule CATCH struck vaus!!");
+		extended = false;
 		////Game->PlaySound(capsule)
 		//laser = false;
 		//extended = false;
 		//v->Data = default;
-		//catch = true;
+		//caught = 1;
+		
+		/* For catching the ball:
+			When the catch state is 1, then if the ball strikes the vaus **AND** the vaus state is NOT HOLDING_BALL, 
+			then its Step is saved to a misc index (MISC_CAUGHT_STEP) for its lweapon, and its Step is set to 0.
+			Then, its catch state is set to 2, and a Vaus misc index is set to HOLDING_BALL. 
+			When the player presses a LAUNCH button, the Step speed recorded to b->Misc[MISC_CAUGHT_STEP] is set
+			to b->Step, the Misc[] index is cleared, v->Misc[HOLDING_BALL] is set to 0, and catch is set back to 1. 
+		*/
 		
 	}
 	int choosetype()
@@ -1625,12 +1667,15 @@ ffc script capsule
 			++c->Y;
 		}
 	}
-	void all_fall()
+	void all_fall(ffc v, lweapon b)
 	{
 		for ( int q = Screen->NumItems(); q > 0; --q )
 		{
 			item c = Screen->LoadItem(q);
 			fall(c);
+			drawover(c);
+			if ( check_hitvaus(c, v, b) ) Remove(c);
+			//TraceNL(); TraceS("Capsule Hit State: "); TraceB(hit);
 			if ( c->Y > 256 ) Remove(c);
 		}
 	}
