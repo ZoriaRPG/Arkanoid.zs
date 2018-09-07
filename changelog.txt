@@ -1,0 +1,68 @@
+//TODO: 
+
+// Add corner check for WALLS for various angles.
+// Implement new angles after collision with walls and bricks.
+// Implement enemies. 
+// 
+
+Arkanoid.zs and Arkanoid.qst Changes, Revision History
+
+Prior     : No accurate record. 
+Alpha 0.16: Reverted Alpha 0.15 changes back to before adding any angular physics.
+		Then, re-implemented ONLY the Vaus midpoint physics.
+		Fixed the hack for UID in brick.take_hit(). This means that ZC 2.54 Alpha **32** is now the minimum ZC version.
+
+Alpha 0.18: Added 'fast mouse' mode, enabled using V to increase the fast mouse speed, and C tpo decrease it.
+ 	The mouse mode must be enabled for this to function!
+	Fast Mouse moves the Vaus N pixels per frame, based on the distance that the mouse travels * fast_mouse. 
+
+Alpha 0.19: Added a frame check to keyboard keys V and B.
+
+Alpha 0.20: Added an ffc script that reports the version when assigning slots after compiling. 
+
+Alpha 0.21: Added code for advancing to the next stage.
+
+Alpha 0.22: Fixed code for level advancement. Added second stage.
+Alpha 0.23: Fixed brick.all_gone() counting gold bricks. 
+Alpha 0.24: Fixed a bug in ball.check_rightwall() where a right-up moving ball was set to a right-ward angle/dir on contact.
+	     : This was the cause of the ball falling like a stone. 
+	     : Fixed a bug where angles that we were comparing against in ball.check_hitvaus() had the wrong equality constants,
+	     : and thus, were returning false.  
+	     : Added hold_Link_y() to the additional while loops so that the player can't escape that screen by holding directions
+	     : on the single frame where that loop runs. 
+Alpha 0.25: Added capsule class, and set up base functions, to generate capsules and make them fall.
+	     : Capsules now appear int he game, but as of this time, they do not activate any power-ups. 
+
+Alpha 0.26: Added more capsule functions.
+
+Alpha 0.27: Wrote capsule.check_hitvaus() and polished other capsule functions, adding traces to test them.
+	     : Added drawover() functions to capsule and ball classes. 
+	     : Added extend state capabilities to game. Extend capsules now extend the Vaus.
+	     : Added slow capsule powerups that function.
+	     : Added Extra Vaus powerups that function. 
+	     
+Alpha 0.28: Converted capsules to eweapons.
+	     : Fixed extended movement with both KB/JP and Mouse. 
+
+Alpha 0.29: Added laser sprite change on powerup collection. Refactored powerup sounds.
+	     : Refactor extend status to be controlled by the capsules, and added capsule.alloff(ffc), called on stage end or death.
+	     : Added more sound effects.
+	     : Added POINTS on collecting capsules. Capsule points are set in itemdata->Attributes[1]. 
+	     : Began adding extra life on score reaching certain numbers. 
+	     : Added high_score, and score clear system.
+	     : Extra life from points set to 1000. Capsules award 10 points each. 
+	     : Shift+M now enabled mouse and sets fast_mouse = 2;
+
+Alpha 0.30: Fixed timing for music playing and vaus spawning, and fixed visual bugs created by calling capsule.alloff() with improper sequencing.
+          : Made Link's base shieldless down tile blank, to hide graphical glitch caused by the continue script not running before Link is drawn.
+
+Alpha 0.31: Refactored ball.check_hitvaus() to correct angles and locations, adding paddle.centre() and paddle.get_segment() to return areas.
+          : Added paddle zone debug drawlines, enabled using config DEBUG_MIDPOINTS. 
+
+Alpha 0.32: Added complete laser powerup. 
+
+Alpha 0.33: Added complete catch powerup. 
+          :
+NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
+
+//! Bugs: 
