@@ -14,8 +14,8 @@ import "std.zh"
 
 
 //Arkanoid script
-//v0.33
-//31st August, 2018
+//v0.34
+//19th October, 2018
 
 //////////////////////
 /// Script issues: ///
@@ -27,11 +27,11 @@ import "std.zh"
 
 /* ZC issues: 
 	Continue script does not run when Init script runs. It NEEDS to do that! Otherwise, settings that affect things such as Link's tile
-	don't happen before the opening wipe. --FIXED in ZC. 
+	don't happen before the opening wipe. 
 	
 */
 
-ffc script version_alpha_0_33_1
+ffc script version_alpha_0_34
 {
 	void run(){}
 }
@@ -86,11 +86,20 @@ ffc script version_alpha_0_33_1
 ///          : Added paddle zone debug drawlines, enabled using config DEBUG_MIDPOINTS. 
 ///Alpha 0.32: Added complete laser powerup. 
 ///Alpha 0.33: Added complete catch powerup. 
-///          :
+///
+///Alpha 0.34: PureZC 2018n Fall Expo Build:
+///          : Added stages 3, 4, 5, 6, 7 and 8.
+///          : Temporarily disabled split ppower capsule, and ball step speed increases.
+///          : Added partial Break capsule power. The exits do not appear; the stage auto-advances on collecting them.
+///          : Added level intro strings.
+///          : Updated display bar (points, players; fonts).
+///          : Adjusted Game Over text display and added HACK to force game over to run.
+///          : Added HACK to force high score updates. 
+///          : Fixed onCOntinue script not resetting Player's score to 0.
 /// NOTE:  VAUS BREAK could use 'moving link' to the next screen to scroll it as an effect. 
 
-//! Bug: 
-
+//! Bug: Right side of vaus angle zones are reversed. RUU is to the right of RU. RRU seems not to exist. 
+//! I should be drawing red v-lines over the points where the ball zones are on the paddle. 
 
 typedef const int config;
 const int ENABLE = 1;
@@ -99,9 +108,10 @@ const int DISABLE = 0;
 config DEBUG_MIDPOINTS = DISABLE;
 config BRICK_CHANCE_CAPSULE 	= 50;
 config FAST_MOUSE_MAX	 	= 6;
-config MAX_STAGES 		= 2; //Number of stages/levels in the game.
+config MAX_STAGES 		= 8; //Number of stages/levels in the game.
 config MAX_BALL_SPEED 		= 300;
-config MIN_ZC_ALPHA_BUILD 	= 35; //Alphas are negatives, so we neex to check maximum, not minimum.
+config MIN_ZC_ALPHA_BUILD 	= 41; //Alphas are negatives, so we neex to check maximum, not minimum.
+config MIN_ZC_BETA_ID	 	= 1; //Alphas are negatives, so we neex to check maximum, not minimum.
 config STARTING_LIVES 		= 5; 
 config CAPSULE_FALL_SPEED 	= 1;
 config BALL_INITIAL_STEP 	= 90;
@@ -155,7 +165,7 @@ sfx SFX_ARK2_CRYSTAL = 27;
 sfx SFX_ARK2_ESCAPE = 28;
 sfx SFX_ARK2_BELLS_CHIMES = 29;
 
-const float ARKANOID_VERSION = 0.25;
+const float ARKANOID_VERSION = 34;
 
 //Radians for special directions. 
 const float DIR_UUL = 4.3197;
@@ -200,9 +210,9 @@ const int NPC_ATTRIB_POINTS = 0; //brick->Attributes[], value for score.
 const int CAPS_EW_MISC_POINTS = 6;
 
 //Counters
-const int CR_SCORE = 7; //script 1
-const int CR_LIVES = 8; 
-const int CR_HIGH_SCORE = 9; 
+const int CR_SCORE = CR_SCRIPT1; 
+const int CR_LIVES = CR_SCRIPT2; 
+const int CR_HIGH_SCORE = CR_SCRIPT3; 
 
 int high_score; //saved with quest.
 int last_score_award;
@@ -730,6 +740,13 @@ const int TEST_254_GETPIXEL = 1;
 
 global script arkanoid
 {
+	int stage_string[]="STAGE 01";
+
+	const int STAGE_X = 128 - 32; //(1/2 screen width - 1/2 string width in pixels)
+	const int STAGE_Y = 170;
+	const int STAGE_FONT = FONT_PSTART;
+	const int STAGE_BG_COLOUR = 0x5F; //black
+	const int STAGE_FG_COLOUR = 0x51; //white
 	
 	void run()
 	{
@@ -796,6 +813,10 @@ global script arkanoid
 			while(!quit)
 			{
 				++frame;
+				if ( Game->Counter[CR_HIGH_SCORE] < Game->Counter[CR_SCORE] ) 
+				{
+					Game->Counter[CR_HIGH_SCORE] = Game->Counter[CR_SCORE];
+				}
 				if ( Link->PressEx1 ) Graphics->Greyscale(true);
 				if ( Link->PressEx2 ) Graphics->Greyscale(false);
 				if ( Input->Key[KEY_L] ) ++Game->Counter[CR_LIVES]; 
@@ -804,8 +825,8 @@ global script arkanoid
 				hold_Link_x(vaus); //Link is used to cause floating enemies to home in on the vaus. 
 				while ( newstage ) 
 				{
-					
-					
+					TraceS(stage_string);
+					showStageString(stage_string);
 					capsule.all_clear(); //remove visible capsules
 					
 					hold_Link_y();
@@ -814,11 +835,18 @@ global script arkanoid
 					Game->PlayMIDI(MID_STAGE_START);
 					
 					brick.setup();
+					
 					Waitframes(6);
 					
 					brick.clear_combos();
 					
-					for ( int q = 0; q < 180; ++q ) WaitNoAction();
+					for ( int q = 0; q < 180; ++q ) 
+					{
+						Screen->DrawString(6,STAGE_X+6,128, FONT_MARIOLAND, 0x5F,-1,0,stage_string, 128);
+						Screen->DrawString(6,STAGE_X+6-1,128-1, FONT_MARIOLAND, 0x51,-1,0,stage_string, 128);
+						//showStageString(stage_string);
+						WaitNoAction();
+					}
 					TraceS("Setting up Vaus on a new stage"); 
 					paddle.setup(vaus);
 					capsule.alloff(vaus,movingball); //clear powerup status
@@ -850,12 +878,15 @@ global script arkanoid
 						Game->PlayMIDI(1);
 						while(1)
 						{
-							Screen->DrawString(6, 96, 80, 1, 0x51, 0x00, 0, "DEMO OVER", 128);
+							Screen->DrawString(6, 113, 80, 1, 0x51, 0x00, 0, "DEMO OVER", 128);
 							Waitdraw(); Waitframe();
 						}
 					}
+					setStageString(stage_string);
 					leveldone = false;
 				}
+				//Automatic level skip on F5:
+				//if ( Input->ReadKey[46+5] ) leveldone = true;
 				if ( revive_vaus ) //when this is called, the ball breaks through all bricks. Something isn't being set. 
 				{
 					vaus->Data = 0; //make it invisible for the moment, to stop the death anim. 
@@ -1029,6 +1060,12 @@ global script arkanoid
 						--Game->Counter[CR_LIVES];
 						revive_vaus = true; 
 					}
+					else
+					{
+						quit = QUIT_GAMEOVER;
+						gameover.run();
+						//TraceError("quit state is QUIT_:",QUIT_GAMEOVER);
+					}
 					*/
 					
 				}
@@ -1123,6 +1160,7 @@ global script arkanoid
 					}
 					else //Ugh, this is a mess. I might want to rewrite the gane over portion, as it feels as if it'll be a biugger kludge than just calling break.
 					{
+						gameover.run();
 						if ( !death_anim[DEATH_ANIM_COUNTDOWN_TO_QUIT] ) 
 						{
 							death_anim[DEATH_ANIM_COUNTDOWN_TO_QUIT] = COUNTDOWN_TO_QUIT_FRAMES;
@@ -1181,6 +1219,27 @@ global script arkanoid
 		last_score_award = 0;
 		
 	}
+	
+	void setStageString(int s_ptr)
+	{
+		int cur[3]="0"; 
+		if ( cur_stage < 10 )
+			itoa(cur,1,cur_stage);
+		else itoa(cur,cur_stage);
+		for ( int q = 6; q < 9; ++q ) s_ptr[q] = cur[q-6];
+	}
+
+
+	void showStageString(int s_ptr)
+	{
+		TraceError("STAGE_X is:", STAGE_X);
+		TraceError("STAGE_Y is:", STAGE_Y);
+		TraceError("STAGE_FONT is:", STAGE_FONT);
+		TraceError("STAGE_FONT is:", STAGE_FONT);
+		Screen->DrawString(6,STAGE_X+1,STAGE_Y+1, 0, STAGE_BG_COLOUR,0,0,s_ptr, 128);
+		Screen->DrawString(6,STAGE_X,STAGE_Y, STAGE_FONT, STAGE_FG_COLOUR,0,0,s_ptr, 128);	
+	}
+	
 	void update_high_score_display()
 	{
 		Game->Counter[CR_HIGH_SCORE] = high_score;
@@ -1216,16 +1275,16 @@ global script arkanoid
 	
 	void check_min_zc_build()
 	{
-		if ( Game->Beta < MIN_ZC_ALPHA_BUILD )
+		if ( Game->Build < MIN_ZC_ALPHA_BUILD || Game->Beta < MIN_ZC_BETA_ID )
 		{
 			Game->PlayMIDI(9);
 			int v_too_early = 600; int req_vers[3]; itoa(req_vers, MIN_ZC_ALPHA_BUILD);
 			TraceNL(); int vers[3]; itoa(vers,Game->Beta);
-			TraceS("This version of Arkanoid.qst requires Zelda Classic v2.54, Alpha (");
+			TraceS("This version of Arkanoid.qst requires Zelda Classic v2.55, Alpha (");
 			TraceS(req_vers);
 			TraceS("), or later.");
 			TraceNL();
-			TraceS("I'm detecting Zelda Classic v2.54, Alpha (");
+			TraceS("I'm detecting Zelda Classic v2.55, Alpha (");
 			TraceS(vers);
 			TraceS(") and therefore, I must refuse to run. :) ");
 			TraceNL();
@@ -1233,7 +1292,7 @@ global script arkanoid
 			while(v_too_early--)
 			{
 				//Screen->DrawString(7, 4, 40, 1, 0x04, 0x5F, 0, 
-				//"This version of Arkanoid.qst requires Zelda Classic 2.54, Alpha 32", 
+				//"This version of Arkanoid.qst requires Zelda Classic 2.55, Alpha 1", 
 				//128);
 				Screen->DrawString(7, 15, 40, 1, 0x04, 0x5F, 0, 
 				"You are not using a version of ZC adequate to run         ", 
@@ -1391,28 +1450,28 @@ ffc script ball
 					{
 						b->Angular = false;
 						b->Dir = DIR_LEFTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						///*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_LUU:
 					{
 						b->Angular = false;
 						b->Dir = DIR_LEFTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						///*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_RRU:
 					{
 						b->Angular = false;
 						b->Dir = DIR_RIGHTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						///*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_RUU:
 					{
 						b->Angular = false;
 						b->Dir = DIR_RIGHTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						///*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					
@@ -1422,12 +1481,12 @@ ffc script ball
 			{
 				switch(b->Dir)
 				{
-					case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-					case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+					case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
+					case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 					default: { 
 						TraceNL(); TraceS("Ball direction invalid for ball.check_ceiling()."); 
 							TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
-						b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+						b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 				}
 			}
 		}
@@ -1446,28 +1505,28 @@ ffc script ball
 					{
 						b->Angular = false;
 						b->Dir = DIR_RIGHTUP;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_LUU:
 					{
 						b->Angular = false;
 						b->Dir = DIR_RIGHTUP;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_LLD:
 					{
 						b->Angular = false;
 						b->Dir = DIR_RIGHTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_LDD:
 					{
 						b->Angular = false;
 						b->Dir = DIR_RIGHTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					
@@ -1477,12 +1536,12 @@ ffc script ball
 			{
 				switch(b->Dir)
 				{
-					case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-					case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+					case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
+					case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 					default: { 
 						TraceNL(); TraceS("Ball direction invalid for ball.check_leftwall()."); 
 							TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
-						b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+						b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 				}
 			}
 		}
@@ -1501,28 +1560,28 @@ ffc script ball
 					{
 						b->Angular = false;
 						b->Dir = DIR_LEFTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_RDD:
 					{
 						b->Angular = false;
 						b->Dir = DIR_LEFTDOWN;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_RRU:
 					{
 						b->Angular = false;
 						b->Dir = DIR_LEFTUP;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					case DIR_RUU:
 					{
 						b->Angular = false;
 						b->Dir = DIR_LEFTUP;
-						b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+						/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 						break;
 					}
 					
@@ -1532,12 +1591,12 @@ ffc script ball
 			{
 				switch(b->Dir)
 				{
-					case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-					case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+					case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
+					case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 					default: { 
 						TraceNL(); TraceS("Ball direction invalid for ball.check_rightwall()."); 
 							TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
-						b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+						b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 				}
 			}
 		}
@@ -1619,7 +1678,7 @@ ffc script ball
 								//b->Y = v->Y-1;
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/
 								try_catch(b,v);
 								return;
 							}
@@ -1633,7 +1692,7 @@ ffc script ball
 								
 								b->Angular = true;
 								b->Angle = DIR_LUU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/
 								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_LUU);
 								try_catch(b,v);
 								return;
@@ -1674,7 +1733,7 @@ ffc script ball
 								
 								b->Angular = true;
 								b->Angle = DIR_RUU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/
 								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
 								try_catch(b,v);
 								return;
@@ -1693,7 +1752,7 @@ ffc script ball
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
 								//b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/
 								try_catch(b,v);
 								return;
 								
@@ -1706,7 +1765,7 @@ ffc script ball
 								
 								b->Angular = true;
 								b->Angle = DIR_RRU;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/
 								try_catch(b,v);
 								TraceNL(); TraceS("Checking if set angle evals true when compared against: "); TraceB(b->Angle == DIR_RUU);
 								return;
@@ -2075,6 +2134,7 @@ ffc script capsule
 			b->Step = b->Misc[BALL_MISC_OLDSTEP];
 		}
 		//create exit
+		leveldone = true;
 	}
 	void extravaus(ffc v, lweapon b)
 	{
@@ -2152,7 +2212,7 @@ ffc script capsule
 		{
 			CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND, CAPS_TYPE_EXTEND,
 			CAPS_TYPE_CATCH, CAPS_TYPE_CATCH, CAPS_TYPE_CATCH, 
-			CAPS_TYPE_DIVIDE, CAPS_TYPE_DIVIDE, CAPS_TYPE_DIVIDE, 
+			/* turning off during Fall Expo CAPS_TYPE_DIVIDE, CAPS_TYPE_DIVIDE, CAPS_TYPE_DIVIDE, */
 			CAPS_TYPE_LASER, CAPS_TYPE_LASER, CAPS_TYPE_LASER, 
 			CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, CAPS_TYPE_SLOW, 
 			CAPS_TYPE_VAUS, CAPS_TYPE_BREAK
@@ -2359,56 +2419,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RRD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2422,28 +2482,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}	
 							
@@ -2464,56 +2524,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2527,28 +2587,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}	
 							
@@ -2570,28 +2630,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RRU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2601,11 +2661,11 @@ ffc script brick
 					{
 						switch(b->Dir)
 						{
-							case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-							case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+							case DIR_RIGHTUP: { b->Dir = DIR_RIGHTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
+							case DIR_LEFTUP: { b->Dir = DIR_LEFTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 							default: { TraceNL(); TraceS("Ball direction invalid for brick.take_hit(hit_below())."); 
 								TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
-								b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 						}
 					}
 				}
@@ -2646,56 +2706,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2709,28 +2769,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2751,56 +2811,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2814,28 +2874,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2856,28 +2916,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RRD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2893,7 +2953,7 @@ ffc script brick
 								TraceNL(); TraceS("Ball direction invalid for brick.take_hit(hit_above())."); 
 								TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
 								
-								b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 						}
 					}
 					
@@ -2925,56 +2985,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -2988,28 +3048,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3030,56 +3090,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RRD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3093,28 +3153,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}	
 							
@@ -3133,28 +3193,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3164,12 +3224,12 @@ ffc script brick
 					{
 						switch(b->Dir)
 						{
-							case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-							case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+							case DIR_RIGHTDOWN: { b->Dir = DIR_LEFTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
+							case DIR_RIGHTUP: { b->Dir = DIR_LEFTUP; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 							default: { 
 								TraceNL(); TraceS("Ball direction invalid for brick.take_hit(hit(left))."); 
 								TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
-								b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 						}
 					}
 					/*
@@ -3206,56 +3266,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3269,28 +3329,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}	
 							
@@ -3311,56 +3371,56 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_RIGHTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LLD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_LDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3374,28 +3434,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_DOWNLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_UPRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPRIGHT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNLEFT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_UPLEFT:
 							{
 								b->Angular = false;
 								b->Dir = DIR_DOWNRIGHT;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3413,28 +3473,28 @@ ffc script brick
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RDD:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTDOWN;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RRU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							case DIR_RUU:
 							{
 								b->Angular = false;
 								b->Dir = DIR_LEFTUP;
-								b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); 
+								/*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ 
 								break;
 							}
 							
@@ -3444,12 +3504,12 @@ ffc script brick
 					{
 						switch(b->Dir)
 						{
-							case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
-							case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+							case DIR_LEFTDOWN: { b->Dir = DIR_RIGHTDOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
+							case DIR_LEFTUP: { b->Dir = DIR_RIGHTUP; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 							default: { 
 								TraceNL(); TraceS("Ball direction invalid for brick.take_hit(hit_right())."); 
 								TraceNL(); TraceS("Ball Dir is: "); Trace(b->Dir); TraceNL();
-								b->Dir = DIR_DOWN; b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED); break; }
+								b->Dir = DIR_DOWN; /*b->Step = bound(b->Step+1, 0, MAX_BALL_SPEED);*/ break; }
 						}
 					}
 					/*
@@ -3580,6 +3640,45 @@ ffc script brick
 	}
 }
 
+//The global script arkanoid calls the run function of this script to replace its run on GameOver
+//This is a HACK for the 2018 PureZC Fall Expo demo.
+ffc script gameover
+{
+	void run()
+	{
+		TraceS("Game Over");
+		/*
+		if ( Game->Counter[CR_HIGH_SCORE] < Game->Counter[CR_SCORE] ) 
+		{
+			TraceS("Saving High Score");
+			Game->Counter[CR_HIGH_SCORE] = Game->Counter[CR_SCORE];
+			Game->Counter[CR_SCORE] = 0;
+			Game->Save();
+		}
+		*/
+		while (1) //Game Over
+		{
+			if ( !(GAME[GAME_MISC_FLAGS]&GMFS_PLAYED_GAME_OVER_MUSIC) )
+			{
+				GAME[GAME_MISC_FLAGS]|=GMFS_PLAYED_GAME_OVER_MUSIC;
+				//Play Game over MIDI
+				Game->PlayMIDI(1);
+				arkanoid.clearscore();
+				arkanoid.update_high_score_display();
+			}
+			
+			//Screen->DrawString(6, arkanoid.STAGE_X, 80, FONT_LISA, 0x08, 0x00, 0, "  GAME OVER  ", 128);
+			Screen->DrawString(6, 111-13-1, 96-1, FONT_MANA, 0x95, -1, 0, "GAME OVER", 128);
+			Screen->DrawString(6, 111-13+1, 96+1, FONT_MANA, 0x95, -1, 0, "GAME OVER", 128);
+			Screen->DrawString(6, 111-13, 96, FONT_MANA, 0x08, -1, 0, "GAME OVER", 128);
+			
+			//Waitdraw(); 
+			Waitframe();
+		}
+		//We should never reach here. 
+	}
+}
+
 global script onExit
 {
 	void run()
@@ -3589,6 +3688,14 @@ global script onExit
 		Screen->LayerMap[0] = templayer[2];
 		Screen->LayerMap[1] = templayer[3];
 		newstage = true;
+		//Hack for 2018 PureZC Fall Expo
+		/*
+		if ( Game->Counter[CR_HIGH_SCORE] < Game->Counter[CR_SCORE] ) 
+		{
+			Game->Counter[CR_HIGH_SCORE] = Game->Counter[CR_SCORE];
+			Game->Save();
+		}
+		*/
 		arkanoid.clearscore();
 		arkanoid.update_high_score_display();
 		//vaus->Misc[MISC_DEAD] = 0;
@@ -3638,6 +3745,8 @@ global script onContinue
 		//ffc vaus = Screen->LoadFFC(FFC_VAUS);
 		//paddle.setup(vaus);
 		Game->Counter[CR_LIVES] = STARTING_LIVES;
+		//Game->Counter[CR_HIGHSCORE] = high_score;
+		Game->Counter[CR_SCORE] = 0;
 		Link->Invisible = true; 
 		Link->CollDetection = false;
 		Link->DrawYOffset = -32768;
@@ -3661,7 +3770,7 @@ global script onContinue
 
 //////////////////////
 /// DEAD ZC Issues //////////////////////////////////////////////////////////////////////////////
-/// I fixed these issues, in specific Alphas of ZC 2.54, noted below for historical purposes: ///
+/// I fixed these issues, in specific Alphas of ZC 2.55, noted below for historical purposes: ///
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 
